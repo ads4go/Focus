@@ -123,11 +123,14 @@ enum SyncEngine {
             guard dto.updatedAt > existing.updatedAt else { return }
             existing.name = dto.name
             existing.colorHex = dto.colorHex
+            existing.parentTagID = dto.parentTagID
+            existing.sortOrder = dto.sortOrder
             existing.updatedAt = dto.updatedAt
             existing.deletedAt = dto.deletedAt
         } else {
             context.insert(Tag(
-                id: dto.id, name: dto.name, colorHex: dto.colorHex,
+                id: dto.id, name: dto.name, colorHex: dto.colorHex, parentTagID: dto.parentTagID,
+                sortOrder: dto.sortOrder,
                 createdAt: dto.createdAt, updatedAt: dto.updatedAt, deletedAt: dto.deletedAt
             ))
         }
@@ -141,11 +144,16 @@ enum SyncEngine {
             existing.name = dto.name
             existing.notes = dto.notes
             existing.isCompleted = dto.isCompleted
+            existing.sortOrder = dto.sortOrder
+            existing.reviewIntervalDays = dto.reviewIntervalDays
+            existing.lastReviewedAt = dto.lastReviewedAt
             existing.updatedAt = dto.updatedAt
             existing.deletedAt = dto.deletedAt
         } else {
             context.insert(Project(
                 id: dto.id, name: dto.name, notes: dto.notes, isCompleted: dto.isCompleted,
+                sortOrder: dto.sortOrder,
+                reviewIntervalDays: dto.reviewIntervalDays, lastReviewedAt: dto.lastReviewedAt,
                 createdAt: dto.createdAt, updatedAt: dto.updatedAt, deletedAt: dto.deletedAt
             ))
         }
@@ -159,18 +167,21 @@ enum SyncEngine {
             existing.title = dto.title
             existing.notes = dto.notes
             existing.projectID = dto.projectID
+            existing.parentTaskID = dto.parentTaskID
             existing.dueDate = dto.dueDate
             existing.deferDate = dto.deferDate
             existing.flagged = dto.flagged
             existing.completed = dto.completed
             existing.completedAt = dto.completedAt
+            existing.sortOrder = dto.sortOrder
             existing.updatedAt = dto.updatedAt
             existing.deletedAt = dto.deletedAt
         } else {
             context.insert(TaskItem(
                 id: dto.id, title: dto.title, notes: dto.notes, projectID: dto.projectID,
+                parentTaskID: dto.parentTaskID,
                 dueDate: dto.dueDate, deferDate: dto.deferDate, flagged: dto.flagged,
-                completed: dto.completed, completedAt: dto.completedAt,
+                completed: dto.completed, completedAt: dto.completedAt, sortOrder: dto.sortOrder,
                 createdAt: dto.createdAt, updatedAt: dto.updatedAt, deletedAt: dto.deletedAt
             ))
         }

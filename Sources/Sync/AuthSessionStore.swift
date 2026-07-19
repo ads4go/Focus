@@ -11,6 +11,7 @@ final class AuthSessionStore {
     private(set) var session: Session?
     private(set) var isRestoringSession = true
     var errorMessage: String?
+    var statusMessage: String?
 
     private let auth = SupabaseServices.auth
 
@@ -31,6 +32,7 @@ final class AuthSessionStore {
 
     func signIn(email: String, password: String) async {
         errorMessage = nil
+        statusMessage = nil
         do {
             _ = try await auth.signIn(email: email, password: password)
         } catch {
@@ -40,8 +42,17 @@ final class AuthSessionStore {
 
     func signUp(email: String, password: String) async {
         errorMessage = nil
+        statusMessage = nil
         do {
-            _ = try await auth.signUp(email: email, password: password)
+            let response = try await auth.signUp(email: email, password: password)
+            switch response {
+            case .session:
+                break // authStateChanges picks this up and flips the UI over to the app.
+            case .user:
+                // Supabase's "Confirm email" setting is on, so no session comes back
+                // yet — without this, sign-up looks like it silently did nothing.
+                statusMessage = "Account created. Check \(email) for a confirmation link, then sign in — or turn off \"Confirm email\" under Authentication settings in the Supabase dashboard to skip this."
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

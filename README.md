@@ -23,6 +23,8 @@ brew install xcodegen
    app is just for your own two Macs, so email confirmation is unnecessary
    friction.
 5. Under **Settings → API**, copy the **Project URL** and **anon public key**.
+API URL: https://uworkylytvuxbhgllgvq.supabase.co/rest/v1/
+publishable key: sb_publishable_i55mjK5vbuKKC1ISp_Rv0g_gHYMI3Y3
 
 ### 3. Configure secrets
 
@@ -75,6 +77,7 @@ create table public.tasks (
   id uuid primary key,
   owner_id uuid not null default auth.uid() references auth.users(id),
   project_id uuid references public.projects(id),
+  parent_task_id uuid references public.tasks(id),
   title text not null,
   notes text not null default '',
   due_date timestamptz,
@@ -87,6 +90,7 @@ create table public.tasks (
   deleted_at timestamptz
 );
 create index tasks_owner_updated_idx on public.tasks (owner_id, updated_at);
+create index tasks_parent_idx on public.tasks (parent_task_id);
 
 create table public.task_tags (
   id uuid primary key,
@@ -110,6 +114,30 @@ create policy "own rows only" on public.tags for all using (owner_id = auth.uid(
 create policy "own rows only" on public.projects for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 create policy "own rows only" on public.tasks for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 create policy "own rows only" on public.task_tags for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+```
+
+## Migrations
+
+Schema changes after your initial setup need to be applied by hand in the
+Supabase SQL editor — there's no migration runner. So far:
+
+```sql
+-- Subtasks (added after initial release)
+alter table public.tasks add column parent_task_id uuid references public.tasks(id);
+create index tasks_parent_idx on public.tasks (parent_task_id);
+
+-- Nested tag folders (added after initial release)
+alter table public.tags add column parent_tag_id uuid references public.tags(id);
+create index tags_parent_idx on public.tags (parent_tag_id);
+
+-- Manual drag-to-reorder (added after initial release)
+alter table public.tasks add column sort_order double precision not null default extract(epoch from now());
+alter table public.projects add column sort_order double precision not null default extract(epoch from now());
+alter table public.tags add column sort_order double precision not null default extract(epoch from now());
+
+-- Project review cadence (added after initial release)
+alter table public.projects add column review_interval_days integer;
+alter table public.projects add column last_reviewed_at timestamptz;
 ```
 
 ## How sync works

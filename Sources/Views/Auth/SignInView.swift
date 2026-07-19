@@ -29,6 +29,13 @@ struct SignInView: View {
                 Text(errorMessage)
                     .font(.callout)
                     .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
+            if let statusMessage = authStore.statusMessage {
+                Text(statusMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
 
             Button(isSigningUp ? "Create Account" : "Sign In") {
@@ -40,6 +47,7 @@ struct SignInView: View {
             Button(isSigningUp ? "Already have an account? Sign In" : "New here? Create an Account") {
                 isSigningUp.toggle()
                 authStore.errorMessage = nil
+                authStore.statusMessage = nil
             }
             .buttonStyle(.link)
         }

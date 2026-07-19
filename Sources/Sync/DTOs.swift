@@ -9,6 +9,8 @@ struct TagDTO: Codable {
     let id: UUID
     var name: String
     var colorHex: String?
+    var parentTagID: UUID?
+    var sortOrder: Double
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
@@ -16,6 +18,8 @@ struct TagDTO: Codable {
     enum CodingKeys: String, CodingKey {
         case id, name
         case colorHex = "color_hex"
+        case parentTagID = "parent_tag_id"
+        case sortOrder = "sort_order"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case deletedAt = "deleted_at"
@@ -25,6 +29,8 @@ struct TagDTO: Codable {
         id = tag.id
         name = tag.name
         colorHex = tag.colorHex
+        parentTagID = tag.parentTagID
+        sortOrder = tag.sortOrder
         createdAt = tag.createdAt
         updatedAt = tag.updatedAt
         deletedAt = tag.deletedAt
@@ -36,6 +42,9 @@ struct ProjectDTO: Codable {
     var name: String
     var notes: String
     var isCompleted: Bool
+    var sortOrder: Double
+    var reviewIntervalDays: Int?
+    var lastReviewedAt: Date?
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
@@ -43,6 +52,9 @@ struct ProjectDTO: Codable {
     enum CodingKeys: String, CodingKey {
         case id, name, notes
         case isCompleted = "is_completed"
+        case sortOrder = "sort_order"
+        case reviewIntervalDays = "review_interval_days"
+        case lastReviewedAt = "last_reviewed_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case deletedAt = "deleted_at"
@@ -53,6 +65,9 @@ struct ProjectDTO: Codable {
         name = project.name
         notes = project.notes
         isCompleted = project.isCompleted
+        sortOrder = project.sortOrder
+        reviewIntervalDays = project.reviewIntervalDays
+        lastReviewedAt = project.lastReviewedAt
         createdAt = project.createdAt
         updatedAt = project.updatedAt
         deletedAt = project.deletedAt
@@ -62,6 +77,7 @@ struct ProjectDTO: Codable {
 struct TaskDTO: Codable {
     let id: UUID
     var projectID: UUID?
+    var parentTaskID: UUID?
     var title: String
     var notes: String
     var dueDate: Date?
@@ -69,6 +85,7 @@ struct TaskDTO: Codable {
     var flagged: Bool
     var completed: Bool
     var completedAt: Date?
+    var sortOrder: Double
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
@@ -76,9 +93,11 @@ struct TaskDTO: Codable {
     enum CodingKeys: String, CodingKey {
         case id, title, notes, flagged, completed
         case projectID = "project_id"
+        case parentTaskID = "parent_task_id"
         case dueDate = "due_date"
         case deferDate = "defer_date"
         case completedAt = "completed_at"
+        case sortOrder = "sort_order"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case deletedAt = "deleted_at"
@@ -87,6 +106,7 @@ struct TaskDTO: Codable {
     init(_ task: TaskItem) {
         id = task.id
         projectID = task.projectID
+        parentTaskID = task.parentTaskID
         title = task.title
         notes = task.notes
         dueDate = task.dueDate
@@ -94,6 +114,7 @@ struct TaskDTO: Codable {
         flagged = task.flagged
         completed = task.completed
         completedAt = task.completedAt
+        sortOrder = task.sortOrder
         createdAt = task.createdAt
         updatedAt = task.updatedAt
         deletedAt = task.deletedAt
