@@ -7,7 +7,7 @@ final class Project {
     var name: String
     var notes: String
     var isCompleted: Bool
-    var sortOrder: Double = 0
+    var sortOrder: Int = 0
     /// nil = no review cadence ("Never"). Both are Optional so — unlike
     /// sortOrder — no declaration-level default is needed for existing rows
     /// to migrate cleanly; SwiftData backfills Optionals as nil for free.
@@ -22,7 +22,7 @@ final class Project {
         name: String,
         notes: String = "",
         isCompleted: Bool = false,
-        sortOrder: Double = Date().timeIntervalSince1970,
+        sortOrder: Int = Int(Date().timeIntervalSince1970),
         reviewIntervalDays: Int? = 7,
         lastReviewedAt: Date? = nil,
         createdAt: Date = Date(),

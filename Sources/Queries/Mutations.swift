@@ -5,7 +5,7 @@ import SwiftData
 /// indexing (see `Mutations.reorder`) so a drag only touches the moved row —
 /// nothing else in the list needs renumbering.
 protocol Orderable: AnyObject {
-    var sortOrder: Double { get set }
+    var sortOrder: Int { get set }
     var updatedAt: Date { get set }
 }
 extension TaskItem: Orderable {}
@@ -31,7 +31,10 @@ enum Mutations {
         let before = newIndex > 0 ? reordered[newIndex - 1].sortOrder : nil
         let after = newIndex < reordered.count - 1 ? reordered[newIndex + 1].sortOrder : nil
         switch (before, after) {
-        case let (b?, a?): dragged.sortOrder = (b + a) / 2
+        case let (b?, a?):
+            // Keep strict ordering when neighbors are adjacent.
+            let midpoint = b + (a - b) / 2
+            dragged.sortOrder = midpoint == b ? b + 1 : midpoint
         case let (b?, nil): dragged.sortOrder = b + 1
         case let (nil, a?): dragged.sortOrder = a - 1
         default: break

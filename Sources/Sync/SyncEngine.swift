@@ -12,6 +12,20 @@ import PostgREST
 /// for a single-user, two-device personal tool.
 @MainActor
 enum SyncEngine {
+    private static func logSyncResult<T>(
+        _ label: String,
+        _ operation: () async throws -> T
+    ) async rethrows -> T {
+        do {
+            let result = try await operation()
+            print("[SYNC] \(label) succeeded")
+            return result
+        } catch {
+            print("[SYNC] \(label) failed: \(error)")
+            throw error
+        }
+    }
+
     static private(set) var isSyncing = false
     static private(set) var lastError: String?
 
@@ -61,10 +75,12 @@ enum SyncEngine {
         let rows = try context.fetch(FetchDescriptor<Model>(predicate: predicate))
         guard !rows.isEmpty else { return }
         let dtos = rows.map(toDTO)
-        try await SupabaseServices.postgrest
-            .from(table)
-            .upsert(dtos, onConflict: "id")
-            .execute()
+        let _ = try await logSyncResult("upsert \(table)") {
+            try await SupabaseServices.postgrest
+                .from(table)
+                .upsert(dtos, onConflict: "id")
+                .execute()
+        }
     }
 
     // MARK: - Pull
@@ -98,14 +114,16 @@ enum SyncEngine {
         var offset = 0
         let pageSize = 1000
         while true {
-            let page: [DTO] = try await SupabaseServices.postgrest
-                .from(table)
-                .select()
-                .gte("updated_at", value: since)
-                .order("updated_at", ascending: true)
-                .range(from: offset, to: offset + pageSize - 1)
-                .execute()
-                .value
+            let page: [DTO] = try await logSyncResult("fetch \(table) page offset=\(offset)") {
+                try await SupabaseServices.postgrest
+                    .from(table)
+                    .select()
+                    .gte("updated_at", value: since)
+                    .order("updated_at", ascending: true)
+                    .range(from: offset, to: offset + pageSize - 1)
+                    .execute()
+                    .value
+            }
             results.append(contentsOf: page)
             if page.count < pageSize { break }
             offset += pageSize

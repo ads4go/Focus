@@ -7,7 +7,7 @@ final class Tag {
     var name: String
     var colorHex: String?
     var parentTagID: UUID?
-    var sortOrder: Double = 0
+    var sortOrder: Int = 0
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
@@ -17,7 +17,7 @@ final class Tag {
         name: String,
         colorHex: String? = nil,
         parentTagID: UUID? = nil,
-        sortOrder: Double = Date().timeIntervalSince1970,
+        sortOrder: Int = Int(Date().timeIntervalSince1970),
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         deletedAt: Date? = nil

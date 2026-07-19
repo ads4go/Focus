@@ -13,7 +13,7 @@ final class TaskItem {
     var flagged: Bool
     var completed: Bool
     var completedAt: Date?
-    var sortOrder: Double = 0
+    var sortOrder: Int = 0
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
@@ -29,7 +29,7 @@ final class TaskItem {
         flagged: Bool = false,
         completed: Bool = false,
         completedAt: Date? = nil,
-        sortOrder: Double = Date().timeIntervalSince1970,
+        sortOrder: Int = Int(Date().timeIntervalSince1970),
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         deletedAt: Date? = nil

@@ -10,7 +10,7 @@ struct TagDTO: Codable {
     var name: String
     var colorHex: String?
     var parentTagID: UUID?
-    var sortOrder: Double
+    var sortOrder: Int
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
@@ -42,7 +42,7 @@ struct ProjectDTO: Codable {
     var name: String
     var notes: String
     var isCompleted: Bool
-    var sortOrder: Double
+    var sortOrder: Int
     var reviewIntervalDays: Int?
     var lastReviewedAt: Date?
     var createdAt: Date
@@ -85,7 +85,7 @@ struct TaskDTO: Codable {
     var flagged: Bool
     var completed: Bool
     var completedAt: Date?
-    var sortOrder: Double
+    var sortOrder: Int
     var createdAt: Date
     var updatedAt: Date
     var deletedAt: Date?
