@@ -16,6 +16,13 @@ struct RailView: View {
 
     var body: some View {
         VStack(spacing: 2) {
+            Text("TEMP MARKER: RAIL")
+                .font(.caption2.bold())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(.gray, in: Capsule())
+                .padding(.top, 2)
             ForEach(RailItem.allCases) { item in
                 RailTile(item: item, isSelected: selection == item) {
                     onSelect(item)

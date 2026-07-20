@@ -33,6 +33,14 @@ struct TagListView: View {
     // ties into the same row-selection plumbing.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Text("TEMP MARKER: TAG LIST VIEW")
+                .font(.caption.bold())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.pink, in: Capsule())
+                .padding(.horizontal)
+                .padding(.top, 8)
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Tags")

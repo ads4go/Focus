@@ -8,7 +8,6 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var railSelection: RailItem? = .inbox
-    @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
     /// Toggled by re-tapping the already-selected Projects rail button —
     /// hides/shows the leftmost Projects-list pane within its HSplitView.
     @State private var isProjectsListCollapsed = false
@@ -31,12 +30,11 @@ struct ContentView: View {
         HStack(spacing: 0) {
             RailView(selection: railSelection, onSelect: handleRailTap)
             Divider()
-            NavigationSplitView(columnVisibility: $columnVisibility) {
-                browseTier
-            } content: {
+            HSplitView {
                 taskTier
-            } detail: {
+                    .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
                 detailTier
+                    .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .sheet(isPresented: $isShowingQuickEntry) {
@@ -87,10 +85,6 @@ struct ContentView: View {
     private func handleRailTap(_ item: RailItem) {
         guard item == railSelection else {
             railSelection = item
-            // Projects no longer needs its own browse column — its list is
-            // now a section stacked inside the content column instead — so
-            // it only needs the two-column layout, like Inbox/Forecast/Flagged.
-            columnVisibility = (item == .tags || item == .review) ? .all : .doubleColumn
             selectedProjectID = nil
             selectedTagID = nil
             selectedTaskID = nil
@@ -103,71 +97,93 @@ struct ContentView: View {
 
     // MARK: - Tiers
     //
-    // Rail (outside the NavigationSplitView, never collapses) picks a mode.
-    // For Tags/Review, browseTier lists names and taskTier shows the
-    // selected one's tasks — three real columns. Projects instead folds its
-    // list into taskTier as a plain section (see taskTier's .projects case),
-    // and Inbox/Forecast/Flagged have no name list at all — both cases
-    // collapse browseTier away (columnVisibility above) for the simpler
-    // two-column layout.
-
-    @ViewBuilder
-    private var browseTier: some View {
-        switch rail {
-        case .tags:
-            TagListView { id in
-                selectedTagID = id
-                selectedTaskID = nil
-            }
-        case .review:
-            ReviewView { id in
-                selectedProjectID = id
-                selectedTaskID = nil
-            }
-        case .inbox, .forecast, .flagged, .projects:
-            EmptyView()
-        }
-    }
+    // App-wide two-pane layout:
+    // - taskTier: mode content (Projects/Review/Tags/Inbox/Forecast/Flagged)
+    // - detailTier: selected list for Review/Tags and task details.
 
     @ViewBuilder
     private var taskTier: some View {
         switch rail {
         case .projects:
-            // The Projects list sits beside the selected project's tasks,
-            // both in this one column — not a separate NavigationSplitView
-            // sidebar column with its own collapse-toggle chrome, just a
-            // plain resizable split. HSplitView gives a real draggable
-            // divider without any of NavigationSplitView's "this is the
-            // app's navigation sidebar" behavior.
-            HSplitView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("TEMP MARKER: TASK PANE / PROJECTS (LIVE EDIT)")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.blue, in: Capsule())
+                    .padding(8)
+
                 if !isProjectsListCollapsed {
                     ProjectListView { id in
                         selectedProjectID = id
                         selectedTaskID = nil
                     }
-                    .frame(minWidth: 180, idealWidth: 260, maxWidth: 400)
+                } else {
+                    ContentUnavailableView("Projects Collapsed", systemImage: "sidebar.left")
                 }
-                projectDetailOrPlaceholder
-                    .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
             }
         case .review:
-            projectDetailOrPlaceholder
+            VStack(alignment: .leading, spacing: 0) {
+                Text("TEMP MARKER: TASK PANE / REVIEW")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.teal, in: Capsule())
+                    .padding(8)
+                ReviewView { id in
+                    selectedProjectID = id
+                    selectedTaskID = nil
+                }
+            }
         case .tags:
-            if let selectedTagID {
-                TaskListView(
-                    perspective: .tag(selectedTagID),
-                    title: allTags.first { $0.id == selectedTagID }?.name ?? "Tag",
-                    selectedTaskID: $selectedTaskID
-                )
-            } else {
-                ContentUnavailableView("Select a Tag", systemImage: "tag")
+            VStack(alignment: .leading, spacing: 0) {
+                Text("TEMP MARKER: TASK PANE / TAGS")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.pink, in: Capsule())
+                    .padding(8)
+                TagListView { id in
+                    selectedTagID = id
+                    selectedTaskID = nil
+                }
             }
         case .inbox:
-            TaskListView(perspective: .inbox, title: "Inbox", selectedTaskID: $selectedTaskID)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("TEMP MARKER: TASK PANE / INBOX")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.purple, in: Capsule())
+                    .padding(8)
+                TaskListView(perspective: .inbox, title: "Inbox", selectedTaskID: $selectedTaskID)
+            }
         case .forecast:
-            ForecastView(selectedTaskID: $selectedTaskID)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("TEMP MARKER: TASK PANE / FORECAST")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.red, in: Capsule())
+                    .padding(8)
+                ForecastCalendarView()
+            }
         case .flagged:
-            TaskListView(perspective: .flagged, title: "Flagged", selectedTaskID: $selectedTaskID)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("TEMP MARKER: TASK PANE / FLAGGED")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.orange, in: Capsule())
+                    .padding(8)
+                TaskListView(perspective: .flagged, title: "Flagged", selectedTaskID: $selectedTaskID)
+            }
         }
     }
 
@@ -189,19 +205,57 @@ struct ContentView: View {
         // HSplitView gives a real draggable divider (see taskTier's
         // .projects case for why, versus a plain HStack + Divider).
         HSplitView {
-            // Left half is intentionally blank for now — just the
-            // structural split; content may move here later.
-            Color.clear
-                .frame(minWidth: 100, maxWidth: .infinity, maxHeight: .infinity)
             Group {
-                if let task = selectedTask {
-                    TaskDetailView(task: task) { projectID in
-                        railSelection = .projects
-                        selectedProjectID = projectID
-                        selectedTaskID = nil
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("TEMP MARKER: DETAIL LEFT PANE")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.gray, in: Capsule())
+                        .padding(8)
+
+                    switch rail {
+                    case .projects, .review:
+                        projectDetailOrPlaceholder
+                    case .tags:
+                        if let selectedTagID {
+                            TaskListView(
+                                perspective: .tag(selectedTagID),
+                                title: allTags.first { $0.id == selectedTagID }?.name ?? "Tag",
+                                selectedTaskID: $selectedTaskID
+                            )
+                        } else {
+                            ContentUnavailableView("Select a Tag", systemImage: "tag")
+                        }
+                    case .forecast:
+                        ForecastView(selectedTaskID: $selectedTaskID)
+                    default:
+                        Color.clear
                     }
-                } else {
-                    ContentUnavailableView("No Task Selected", systemImage: "checklist")
+                }
+            }
+            .frame(minWidth: 100, maxWidth: .infinity, maxHeight: .infinity)
+
+            Group {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("TEMP MARKER: DETAIL RIGHT PANE")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.black, in: Capsule())
+                        .padding(8)
+
+                    if let task = selectedTask {
+                        TaskDetailView(task: task) { projectID in
+                            railSelection = .projects
+                            selectedProjectID = projectID
+                            selectedTaskID = nil
+                        }
+                    } else {
+                        ContentUnavailableView("No Task Selected", systemImage: "checklist")
+                    }
                 }
             }
             .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)

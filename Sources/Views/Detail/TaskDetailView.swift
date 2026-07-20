@@ -16,6 +16,13 @@ struct TaskDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                Text("TEMP MARKER: TASK DETAIL VIEW")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.black, in: Capsule())
+
                 TextField("Title", text: $task.title)
                     .textFieldStyle(.plain)
                     .font(.title2.weight(.semibold))

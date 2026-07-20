@@ -4,7 +4,7 @@ import SwiftUI
 /// same "colored icon, standard-color text" convention as Reminders/OmniFocus
 /// (e.g. Forecast is red, Flagged is orange) so the rail is scannable at a glance.
 enum RailItem: String, CaseIterable, Hashable, Identifiable {
-    case inbox, forecast, flagged, projects, tags, review
+    case inbox, projects, tags, forecast, flagged, review
 
     var id: String { rawValue }
 

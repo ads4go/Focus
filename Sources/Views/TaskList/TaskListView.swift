@@ -57,6 +57,14 @@ struct TaskListView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            Text("TEMP MARKER: TASK LIST VIEW")
+                .font(.caption.bold())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(accentColor, in: Capsule())
+                .padding(.horizontal)
+                .padding(.top, 8)
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
