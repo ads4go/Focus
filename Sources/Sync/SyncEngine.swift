@@ -87,25 +87,63 @@ enum SyncEngine {
 
     static func pullAll(context: ModelContext) async {
         let since = SyncCursor.lastPulledAt
+        var maxSeenUpdatedAt: Date?
+        var errors: [String] = []
+
         do {
             let tags: [TagDTO] = try await fetchPage(table: "tags", since: since)
-            let projects: [ProjectDTO] = try await fetchPage(table: "projects", since: since)
-            let tasks: [TaskDTO] = try await fetchPage(table: "tasks", since: since)
-            let taskTags: [TaskTagDTO] = try await fetchPage(table: "task_tags", since: since)
-
             for dto in tags { upsertTag(dto, context: context) }
-            for dto in projects { upsertProject(dto, context: context) }
-            for dto in tasks { upsertTask(dto, context: context) }
-            for dto in taskTags { upsertTaskTag(dto, context: context) }
-
-            let maxUpdatedAt = (tags.map(\.updatedAt) + projects.map(\.updatedAt)
-                + tasks.map(\.updatedAt) + taskTags.map(\.updatedAt)).max()
-            if let maxUpdatedAt {
-                SyncCursor.lastPulledAt = maxUpdatedAt
+            if let m = tags.map(\.updatedAt).max() {
+                maxSeenUpdatedAt = max(maxSeenUpdatedAt ?? m, m)
             }
-            lastError = nil
+            print("[SYNC] merged tags: \(tags.count)")
         } catch {
-            lastError = "Pull failed: \(error.localizedDescription)"
+            errors.append("tags: \(error.localizedDescription)")
+        }
+
+        do {
+            let projects: [ProjectDTO] = try await fetchPage(table: "projects", since: since)
+            for dto in projects { upsertProject(dto, context: context) }
+            if let m = projects.map(\.updatedAt).max() {
+                maxSeenUpdatedAt = max(maxSeenUpdatedAt ?? m, m)
+            }
+            print("[SYNC] merged projects: \(projects.count)")
+        } catch {
+            errors.append("projects: \(error.localizedDescription)")
+        }
+
+        do {
+            let tasks: [TaskDTO] = try await fetchPage(table: "tasks", since: since)
+            for dto in tasks { upsertTask(dto, context: context) }
+            if let m = tasks.map(\.updatedAt).max() {
+                maxSeenUpdatedAt = max(maxSeenUpdatedAt ?? m, m)
+            }
+            print("[SYNC] merged tasks: \(tasks.count)")
+        } catch {
+            errors.append("tasks: \(error.localizedDescription)")
+        }
+
+        do {
+            let taskTags: [TaskTagDTO] = try await fetchPage(table: "task_tags", since: since)
+            for dto in taskTags { upsertTaskTag(dto, context: context) }
+            if let m = taskTags.map(\.updatedAt).max() {
+                maxSeenUpdatedAt = max(maxSeenUpdatedAt ?? m, m)
+            }
+            print("[SYNC] merged task_tags: \(taskTags.count)")
+        } catch {
+            errors.append("task_tags: \(error.localizedDescription)")
+        }
+
+        if let maxSeenUpdatedAt {
+            SyncCursor.lastPulledAt = maxSeenUpdatedAt
+        }
+
+        if errors.isEmpty {
+            lastError = nil
+        } else {
+            let message = errors.joined(separator: " | ")
+            lastError = "Pull completed with partial failures: \(message)"
+            print("[SYNC] \(lastError ?? "")")
         }
     }
 
