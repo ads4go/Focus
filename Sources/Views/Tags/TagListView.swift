@@ -33,16 +33,25 @@ struct TagListView: View {
     // ties into the same row-selection plumbing.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Matches the bold-title + count-subtitle header every other
-            // list (Inbox, Forecast, Flagged, a project/tag's own tasks)
-            // uses, so this browse list doesn't look like a different app.
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Tags")
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(.pink)
-                Text(itemCountLabel)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Tags")
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(.pink)
+                    Text(itemCountLabel)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    parentForNewTag = nil
+                    isAddingTag = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Tag")
             }
             .padding(.horizontal)
             .padding(.top, 12)
@@ -72,16 +81,6 @@ struct TagListView: View {
         .onChange(of: selection) { _, newValue in
             if let newValue {
                 onSelectTag(newValue)
-            }
-        }
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    parentForNewTag = nil
-                    isAddingTag = true
-                } label: {
-                    Label("New Tag", systemImage: "plus")
-                }
             }
         }
         .alert(

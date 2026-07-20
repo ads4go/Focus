@@ -20,16 +20,24 @@ struct ProjectListView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Matches the bold-title + count-subtitle header every other
-            // list (Inbox, Forecast, Flagged, a project/tag's own tasks)
-            // uses, so this browse list doesn't look like a different app.
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Projects")
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(.blue)
-                Text(itemCountLabel)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Projects")
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(.blue)
+                    Text(itemCountLabel)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    isAddingProject = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Project")
             }
             .padding(.horizontal)
             .padding(.top, 12)
@@ -91,15 +99,6 @@ struct ProjectListView: View {
         .onChange(of: selection) { _, newValue in
             if let newValue {
                 onSelectProject(newValue)
-            }
-        }
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    isAddingProject = true
-                } label: {
-                    Label("New Project", systemImage: "plus")
-                }
             }
         }
     }

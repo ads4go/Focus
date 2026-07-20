@@ -22,9 +22,7 @@ brew install xcodegen
 4. Under **Authentication → Settings**, you can disable "Confirm email" — this
    app is just for your own two Macs, so email confirmation is unnecessary
    friction.
-5. Under **Settings → API**, copy the **Project URL** and **anon public key**.
-API URL: https://uworkylytvuxbhgllgvq.supabase.co/rest/v1/
-publishable key: sb_publishable_i55mjK5vbuKKC1ISp_Rv0g_gHYMI3Y3
+5. Under **Settings -> API**, copy the **Project URL** and **anon public key**.
 
 ### 3. Configure secrets
 
@@ -131,9 +129,25 @@ alter table public.tags add column parent_tag_id uuid references public.tags(id)
 create index tags_parent_idx on public.tags (parent_tag_id);
 
 -- Manual drag-to-reorder (added after initial release)
-alter table public.tasks add column sort_order double precision not null default extract(epoch from now());
-alter table public.projects add column sort_order double precision not null default extract(epoch from now());
-alter table public.tags add column sort_order double precision not null default extract(epoch from now());
+alter table public.tasks add column sort_order integer not null default 0;
+alter table public.projects add column sort_order integer not null default 0;
+alter table public.tags add column sort_order integer not null default 0;
+
+-- If you previously created sort_order as double precision, convert safely:
+alter table public.tasks
+  alter column sort_order type integer using round(sort_order)::integer,
+  alter column sort_order set default 0,
+  alter column sort_order set not null;
+
+alter table public.projects
+  alter column sort_order type integer using round(sort_order)::integer,
+  alter column sort_order set default 0,
+  alter column sort_order set not null;
+
+alter table public.tags
+  alter column sort_order type integer using round(sort_order)::integer,
+  alter column sort_order set default 0,
+  alter column sort_order set not null;
 
 -- Project review cadence (added after initial release)
 alter table public.projects add column review_interval_days integer;

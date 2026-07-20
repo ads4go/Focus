@@ -15,6 +15,7 @@ struct TaskListView: View {
     private var allProjects: [Project]
 
     @State private var subtaskParent: TaskItem?
+    @State private var isAddingInboxTask = false
 
     private var nodes: [TaskNode] {
         Perspectives.taskTree(for: perspective, allTasks: allTasks, allTaskTags: allTaskTags)
@@ -56,13 +57,26 @@ struct TaskListView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(accentColor)
-                Text(itemCountLabel)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(accentColor)
+                    Text(itemCountLabel)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if perspective == .inbox {
+                    Button {
+                        isAddingInboxTask = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.title3.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("New Inbox Task")
+                }
             }
             .padding(.horizontal)
             .padding(.top, 12)
@@ -103,6 +117,11 @@ struct TaskListView: View {
         .sheet(item: $subtaskParent) { parent in
             QuickEntryPanel(defaultProjectID: parent.projectID, parentTaskID: parent.id) {
                 subtaskParent = nil
+            }
+        }
+        .sheet(isPresented: $isAddingInboxTask) {
+            QuickEntryPanel(defaultProjectID: nil, parentTaskID: nil) {
+                isAddingInboxTask = false
             }
         }
     }
