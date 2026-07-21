@@ -1,8 +1,9 @@
 import SwiftUI
 import SwiftData
 
-/// The calendar portion of the Forecast perspective: header, day strip, and
-/// mini month calendar. The task list lives in the adjacent detail pane (ForecastView).
+/// The calendar portion of the Forecast perspective: the mini month
+/// calendar. The header, day strip, and task list all live in the adjacent
+/// detail pane (ForecastView).
 struct ForecastCalendarView: View {
     @Query(filter: #Predicate<TaskItem> { $0.deletedAt == nil && !$0.completed })
     private var incompleteTasks: [TaskItem]
@@ -10,85 +11,12 @@ struct ForecastCalendarView: View {
     @State private var visibleMonth: Date = Date()
 
     private let calendar = Calendar.current
-    private var today: Date { calendar.startOfDay(for: Date()) }
-    private let stripDayCount = 4
-
-    private var overdueTasks: [TaskItem] {
-        incompleteTasks.filter { ($0.dueDate ?? .distantFuture) < today }
-    }
-
-    private var stripDays: [Date] {
-        (0..<stripDayCount).compactMap { calendar.date(byAdding: .day, value: $0, to: today) }
-    }
-
-    private var futureCount: Int {
-        guard let lastStripDay = stripDays.last,
-              let futureStart = calendar.date(byAdding: .day, value: 1, to: lastStripDay)
-        else { return 0 }
-        return incompleteTasks.filter { ($0.dueDate ?? .distantPast) >= futureStart }.count
-    }
-
-    private var totalDueCount: Int {
-        incompleteTasks.filter { $0.dueDate != nil }.count
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            strip
             monthCalendar
             Spacer()
         }
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Forecast")
-                .font(.largeTitle.bold())
-                .foregroundStyle(.red)
-            Text("\(totalDueCount) item\(totalDueCount == 1 ? "" : "s") due")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
-    }
-
-    // MARK: - Summary strip
-
-    private var strip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                stripTile(label: "Past", count: overdueTasks.count)
-                ForEach(stripDays, id: \.self) { day in
-                    stripTile(label: stripLabel(for: day), count: count(dueOn: day))
-                }
-                stripTile(label: "Future", count: futureCount)
-            }
-            .padding(.horizontal)
-        }
-        .padding(.bottom, 8)
-    }
-
-    private func stripTile(label: String, count: Int) -> some View {
-        VStack(spacing: 4) {
-            Text(label)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-            Text("\(count)")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(count > 0 ? .primary : .secondary)
-        }
-        .frame(width: 64)
-        .padding(.vertical, 8)
-        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-
-    private func stripLabel(for day: Date) -> String {
-        calendar.isDateInToday(day) ? "Today" : day.formatted(.dateTime.weekday(.abbreviated).day())
     }
 
     // MARK: - Month calendar

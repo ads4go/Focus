@@ -1,6 +1,93 @@
 import SwiftUI
 import SwiftData
 
+/// Chevron frame width (14) + the HStack spacing to the label (10) in
+/// SectionHeaderRow below — exposed so callers can indent their section's
+/// content to line up with where the label's own text starts.
+let sectionHeaderLabelIndent: CGFloat = 24
+
+/// A collapsible section header row — gray chevron + label — used for this
+/// app's "dropdown" sections (Projects grouping here, Forecast's date
+/// sections). Deliberately NOT a real DisclosureGroup: giving a
+/// DisclosureGroup a custom DisclosureGroupStyle inside a List collapses
+/// its nested content into a single selectable row on macOS instead of
+/// List's normal per-row selection (each action lost its own selection
+/// highlight, selecting the whole project's worth of rows at once) — so
+/// the caller manages expand/collapse itself with a plain `if`, and this
+/// is just the header row above that.
+struct SectionHeaderRow<Label: View>: View {
+    @Binding var isExpanded: Bool
+    @ViewBuilder let label: () -> Label
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.gray)
+                    .frame(width: 14)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            }
+            .buttonStyle(.plain)
+
+            label()
+        }
+    }
+}
+
+/// Plain text that turns into an inline-editable TextField when clicked —
+/// used for project and action names across the list panes. A real Button
+/// (not a bare tap gesture) wraps the display state, matching how the
+/// checkbox/flag buttons elsewhere in these rows already reliably take
+/// priority over List's own row-selection click.
+struct EditableNameText: View {
+    @Binding var name: String
+    var font: Font = .body
+    var strikethrough: Bool = false
+    var foregroundColor: Color = .primary
+
+    @State private var isEditing = false
+    @State private var draft = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        if isEditing {
+            TextField("Name", text: $draft)
+                .textFieldStyle(.plain)
+                .font(font)
+                .focused($isFocused)
+                .onAppear { isFocused = true }
+                .onSubmit { commit() }
+                .onChange(of: isFocused) { _, focused in
+                    if !focused { commit() }
+                }
+        } else {
+            Button {
+                draft = name
+                isEditing = true
+            } label: {
+                Text(name)
+                    .font(font)
+                    .strikethrough(strikethrough)
+                    .foregroundStyle(foregroundColor)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func commit() {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            name = trimmed
+        }
+        isEditing = false
+    }
+}
+
 struct TaskListView: View {
     let perspective: Perspective
     let title: String
@@ -13,12 +100,55 @@ struct TaskListView: View {
     private var allTaskTags: [TaskTag]
     @Query(filter: #Predicate<Project> { $0.deletedAt == nil }, sort: \Project.name)
     private var allProjects: [Project]
+    @Query(filter: #Predicate<Tag> { $0.deletedAt == nil }, sort: \Tag.name)
+    private var allTags: [Tag]
 
     @State private var subtaskParent: TaskItem?
     @State private var isAddingInboxTask = false
+    /// Collapsed-state per project, keyed by Project.id — absent means
+    /// expanded (mirrors ForecastView's collapsedSectionIDs).
+    @State private var collapsedProjectIDs: Set<UUID> = []
 
     private var nodes: [TaskNode] {
         Perspectives.taskTree(for: perspective, allTasks: allTasks, allTaskTags: allTaskTags)
+    }
+
+    /// A dropdown section for one project, used only by the .projects
+    /// perspective — each project gets its own DisclosureGroup with its
+    /// actions nested underneath, rather than the header naming a single
+    /// selected project (see ContentView.projectsDetailTitle).
+    private struct ProjectSection: Identifiable {
+        let id: UUID
+        let project: Project
+        let nodes: [TaskNode]
+    }
+
+    private var projectSections: [ProjectSection] {
+        let grouped = Dictionary(grouping: nodes) { $0.task.projectID }
+        return allProjects.compactMap { project in
+            guard let groupNodes = grouped[project.id], !groupNodes.isEmpty else { return nil }
+            return ProjectSection(id: project.id, project: project, nodes: groupNodes)
+        }
+    }
+
+    private func nameBinding(for project: Project) -> Binding<String> {
+        Binding(
+            get: { project.name },
+            set: { project.name = $0; project.updatedAt = Date() }
+        )
+    }
+
+    private func isProjectExpandedBinding(for projectID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { !collapsedProjectIDs.contains(projectID) },
+            set: { isExpanded in
+                if isExpanded {
+                    collapsedProjectIDs.remove(projectID)
+                } else {
+                    collapsedProjectIDs.insert(projectID)
+                }
+            }
+        )
     }
 
     /// Mirrors RailItem.tint so a perspective's task list carries the same
@@ -28,18 +158,20 @@ struct TaskListView: View {
         switch perspective {
         case .inbox: return .purple
         case .flagged: return .orange
-        case .projects, .project: return .blue
-        case .tag: return .pink
+        case .projects: return .blue
+        case .tags: return .pink
         }
     }
 
     /// A project breadcrumb only makes sense where tasks from multiple
-    /// projects are mixed together — Inbox tasks have no project by
-    /// definition, and a single project's own view makes it redundant.
+    /// projects are mixed together with no other indication which is
+    /// which — Inbox tasks have no project by definition, and .projects
+    /// groups its rows under a per-project dropdown header instead (see
+    /// projectSections), so a breadcrumb on each row would be redundant.
     private var showsProjectBreadcrumb: Bool {
         switch perspective {
-        case .flagged, .tag: return true
-        case .inbox, .projects, .project: return false
+        case .flagged, .tags: return true
+        case .inbox, .projects: return false
         }
     }
 
@@ -48,23 +180,39 @@ struct TaskListView: View {
         let noun: String
         switch perspective {
         case .inbox: noun = "inbox item"
-        case .flagged: noun = "flagged item"
-        case .projects, .project: noun = "action"
-        case .tag: noun = "item"
+        case .flagged: noun = "action"
+        case .projects: noun = "action"
+        case .tags: noun = "action"
         }
-        return "\(count) \(noun)\(count == 1 ? "" : "s")"
+        let actionsText = "\(count) \(noun)\(count == 1 ? "" : "s")"
+
+        // Projects perspective also mixes tasks from several projects
+        // together (same reasoning as showsProjectBreadcrumb above), so its
+        // header additionally surfaces how many distinct projects are
+        // represented — matching OmniFocus's "30 actions, 5 projects".
+        if case .projects = perspective {
+            let projectCount = Set(nodes.compactMap(\.task.projectID)).count
+            return "\(actionsText), \(projectCount) project\(projectCount == 1 ? "" : "s")"
+        }
+        return actionsText
+    }
+
+    private func taskRow(for node: TaskNode) -> some View {
+        TaskRow(
+            node: node,
+            selectedTaskID: selectedTaskID,
+            allProjects: allProjects,
+            allTags: allTags,
+            allTaskTags: allTaskTags,
+            modelContext: modelContext,
+            showsProjectBreadcrumb: showsProjectBreadcrumb,
+            onAddSubtask: { subtaskParent = $0 }
+        )
+        .listRowSeparator(.hidden)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("TEMP MARKER: TASK LIST VIEW")
-                .font(.caption.bold())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(accentColor, in: Capsule())
-                .padding(.horizontal)
-                .padding(.top, 8)
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
@@ -83,12 +231,14 @@ struct TaskListView: View {
                             .font(.title3.weight(.semibold))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("New Inbox Task")
+                    .accessibilityLabel("New Inbox Action")
                 }
             }
             .padding(.horizontal)
             .padding(.top, 12)
             .padding(.bottom, 6)
+
+            Divider()
 
             // `List(data, children:)` — the tree convenience initializer —
             // doesn't support `.onMove`, and `.dropDestination` inside a List
@@ -96,24 +246,44 @@ struct TaskListView: View {
             // ForEach+DisclosureGroup recursion (via TaskRow, a real
             // recursive View type) with `.onMove` at each level.
             List(selection: $selectedTaskID) {
-                ForEach(nodes) { node in
-                    TaskRow(
-                        node: node,
-                        selectedTaskID: selectedTaskID,
-                        allProjects: allProjects,
-                        modelContext: modelContext,
-                        showsProjectBreadcrumb: showsProjectBreadcrumb,
-                        onAddSubtask: { subtaskParent = $0 }
-                    )
-                }
-                .onMove { offsets, destination in
-                    Mutations.reorder(nodes.map(\.task), fromOffsets: offsets, toOffset: destination)
+                if case .projects = perspective {
+                    // One header + conditionally-shown rows per project
+                    // (matching ForecastView's date sections) rather than a
+                    // flat list, so the header above can stay fixed at
+                    // "Projects" instead of naming whichever single project
+                    // happens to be selected.
+                    ForEach(Array(projectSections.enumerated()), id: \.element.id) { index, section in
+                        let expanded = isProjectExpandedBinding(for: section.id)
+                        SectionHeaderRow(isExpanded: expanded) {
+                            EditableNameText(name: nameBinding(for: section.project), font: .headline)
+                        }
+                        .listRowSeparator(.hidden)
+                        if expanded.wrappedValue {
+                            ForEach(Array(section.nodes.enumerated()), id: \.element.id) { rowIndex, node in
+                                taskRow(for: node)
+                                    .padding(.top, rowIndex == 0 ? 6 : 0)
+                            }
+                            .onMove { offsets, destination in
+                                Mutations.reorder(section.nodes.map(\.task), fromOffsets: offsets, toOffset: destination)
+                            }
+                            .padding(.leading, sectionHeaderLabelIndent)
+                        }
+                        if index < projectSections.count - 1 {
+                            Divider()
+                                .listRowSeparator(.hidden)
+                        }
+                    }
+                } else {
+                    ForEach(nodes) { node in taskRow(for: node) }
+                        .onMove { offsets, destination in
+                            Mutations.reorder(nodes.map(\.task), fromOffsets: offsets, toOffset: destination)
+                        }
                 }
             }
             .listStyle(.inset)
             .overlay {
                 if nodes.isEmpty {
-                    ContentUnavailableView("No Tasks", systemImage: "checkmark.circle")
+                    ContentUnavailableView("No Actions", systemImage: "checkmark.circle")
                 }
             }
         }
@@ -142,6 +312,8 @@ private struct TaskRow: View {
     let node: TaskNode
     let selectedTaskID: UUID?
     let allProjects: [Project]
+    let allTags: [Tag]
+    let allTaskTags: [TaskTag]
     let modelContext: ModelContext
     let showsProjectBreadcrumb: Bool
     let onAddSubtask: (TaskItem) -> Void
@@ -154,10 +326,13 @@ private struct TaskRow: View {
                         node: child,
                         selectedTaskID: selectedTaskID,
                         allProjects: allProjects,
+                        allTags: allTags,
+                        allTaskTags: allTaskTags,
                         modelContext: modelContext,
                         showsProjectBreadcrumb: showsProjectBreadcrumb,
                         onAddSubtask: onAddSubtask
                     )
+                    .listRowSeparator(.hidden)
                 }
                 .onMove { offsets, destination in
                     Mutations.reorder(children.map(\.task), fromOffsets: offsets, toOffset: destination)
@@ -175,9 +350,18 @@ private struct TaskRow: View {
         return allProjects.first { $0.id == projectID }?.name
     }
 
+    private var tagNames: [String] {
+        Perspectives.tags(for: node.task, allTags: allTags, allTaskTags: allTaskTags).map(\.name)
+    }
+
     private var rowContent: some View {
         let task = node.task
-        return TaskRowView(task: task, isSelected: task.id == selectedTaskID, projectName: projectName) {
+        return TaskRowView(
+            task: task,
+            isSelected: task.id == selectedTaskID,
+            projectName: projectName,
+            tagNames: tagNames
+        ) {
             Mutations.toggleCompleted(task, in: modelContext)
         }
         .tag(task.id)
@@ -187,7 +371,7 @@ private struct TaskRow: View {
         // independently reachable for VoiceOver on parent rows too.
         .accessibilityElement(children: .contain)
         .contextMenu {
-            Button("Add Subtask") {
+            Button("Add Subaction") {
                 onAddSubtask(task)
             }
             Button("Duplicate") {

@@ -7,6 +7,7 @@ struct TaskRowView: View {
     /// mix tasks from multiple projects (Flagged, a Tag's tasks), where the
     /// project isn't already implied by the list itself.
     var projectName: String? = nil
+    var tagNames: [String] = []
     let onToggleComplete: () -> Void
 
     private var isOverdue: Bool {
@@ -17,23 +18,32 @@ struct TaskRowView: View {
         HStack(alignment: .top, spacing: 8) {
             Button(action: onToggleComplete) {
                 Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 16))
                     .foregroundStyle(checkboxTint)
             }
             .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(task.title)
-                    .strikethrough(task.completed)
-                    .foregroundStyle(task.completed ? .secondary : .primary)
+                EditableNameText(
+                    name: titleBinding,
+                    strikethrough: task.completed,
+                    foregroundColor: task.completed ? .secondary : .primary
+                )
 
-                if let projectName {
-                    Label(projectName, systemImage: "folder")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if task.dueDate != nil || task.deferDate != nil {
+                if projectName != nil || !tagNames.isEmpty || task.dueDate != nil || task.deferDate != nil {
                     HStack(spacing: 6) {
+                        if let projectName {
+                            Label(projectName, systemImage: "folder")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if !tagNames.isEmpty {
+                            Label(tagNames.joined(separator: ", "), systemImage: "tag")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
                         if let dueDate = task.dueDate {
                             DateChip(
                                 text: dueDate.formatted(date: .abbreviated, time: .omitted),
@@ -69,6 +79,13 @@ struct TaskRowView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private var titleBinding: Binding<String> {
+        Binding(
+            get: { task.title },
+            set: { task.title = $0; task.updatedAt = Date() }
+        )
     }
 
     private var checkboxTint: Color {

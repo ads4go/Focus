@@ -2,7 +2,10 @@ import SwiftUI
 import SwiftData
 
 struct TagListView: View {
-    let onSelectTag: (UUID) -> Void
+    /// Called with the full selection set on every change, including back
+    /// down to empty — the caller treats an empty set as "no filter, show
+    /// everything" rather than "nothing to show" (see Perspective.tags).
+    let onSelectionChange: (Set<UUID>) -> Void
 
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<Tag> { $0.deletedAt == nil }, sort: \Tag.sortOrder)
@@ -13,14 +16,12 @@ struct TagListView: View {
     @State private var isAddingTag = false
     @State private var newTagName = ""
     @State private var parentForNewTag: Tag?
-    @State private var selection: UUID?
+    /// A Set binding (not a single UUID?) is what gives List its native
+    /// multi-select — Cmd/Shift-click work for free, matching Finder.
+    @State private var selection: Set<UUID> = []
 
     private var nodes: [TagNode] {
         Perspectives.tagTree(allTags: tags)
-    }
-
-    private var itemCountLabel: String {
-        "\(tags.count) tag\(tags.count == 1 ? "" : "s")"
     }
 
     // `List(data, children:)` — the tree convenience initializer — doesn't
@@ -33,38 +34,6 @@ struct TagListView: View {
     // ties into the same row-selection plumbing.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("TEMP MARKER: TAG LIST VIEW")
-                .font(.caption.bold())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.pink, in: Capsule())
-                .padding(.horizontal)
-                .padding(.top, 8)
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Tags")
-                        .font(.largeTitle.bold())
-                        .foregroundStyle(.pink)
-                    Text(itemCountLabel)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button {
-                    parentForNewTag = nil
-                    isAddingTag = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.title3.weight(.semibold))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("New Tag")
-            }
-            .padding(.horizontal)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
-
             List(selection: $selection) {
                 ForEach(nodes) { node in
                     TagRow(node: node, taskCount: taskCount) { tag in
@@ -73,6 +42,7 @@ struct TagListView: View {
                     } onDelete: { tag in
                         Mutations.deleteTag(tag, in: modelContext)
                     }
+                    .listRowSeparator(.hidden)
                 }
                 .onMove { offsets, destination in
                     Mutations.reorder(nodes.map(\.tag), fromOffsets: offsets, toOffset: destination)
@@ -84,12 +54,27 @@ struct TagListView: View {
                     ContentUnavailableView("No Tags", systemImage: "tag")
                 }
             }
+
+            // Bottom-left "+" (no header row above the list anymore) —
+            // matches ProjectListView's own placement for adding a new tag.
+            HStack {
+                Button {
+                    parentForNewTag = nil
+                    isAddingTag = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Tag")
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
         }
         .navigationTitle("Tags")
         .onChange(of: selection) { _, newValue in
-            if let newValue {
-                onSelectTag(newValue)
-            }
+            onSelectionChange(newValue)
         }
         .alert(
             parentForNewTag == nil ? "New Tag" : "New Subtag of \(parentForNewTag?.name ?? "")",
@@ -128,6 +113,7 @@ private struct TagRow: View {
             DisclosureGroup {
                 ForEach(children) { child in
                     TagRow(node: child, taskCount: taskCount, onAddSubtag: onAddSubtag, onDelete: onDelete)
+                        .listRowSeparator(.hidden)
                 }
                 .onMove { offsets, destination in
                     Mutations.reorder(children.map(\.tag), fromOffsets: offsets, toOffset: destination)

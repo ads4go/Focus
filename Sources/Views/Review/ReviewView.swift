@@ -30,6 +30,7 @@ struct ReviewView: View {
             List(selection: $selection) {
                 ForEach(dueProjects) { project in
                     row(for: project)
+                        .listRowSeparator(.hidden)
                 }
             }
             .listStyle(.inset)
@@ -90,7 +91,7 @@ struct ReviewView: View {
             HStack {
                 Image(systemName: "folder")
                     .foregroundStyle(.secondary)
-                Text(project.name)
+                EditableNameText(name: nameBinding(for: project))
             }
             Text("\(intervalLabel(project)) · \(lastReviewedLabel(project))")
                 .font(.caption)
@@ -106,6 +107,13 @@ struct ReviewView: View {
             .fixedSize()
         }
         .tag(project.id)
+    }
+
+    private func nameBinding(for project: Project) -> Binding<String> {
+        Binding(
+            get: { project.name },
+            set: { project.name = $0; project.updatedAt = Date() }
+        )
     }
 
     private func intervalLabel(_ project: Project) -> String {

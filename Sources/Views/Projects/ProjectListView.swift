@@ -2,7 +2,10 @@ import SwiftUI
 import SwiftData
 
 struct ProjectListView: View {
-    let onSelectProject: (UUID) -> Void
+    /// Called with the full selection set on every change, including back
+    /// down to empty — the caller treats an empty set as "no filter, show
+    /// everything" rather than "nothing to show" (see Perspective.projects).
+    let onSelectionChange: (Set<UUID>) -> Void
 
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<Project> { $0.deletedAt == nil }, sort: \Project.sortOrder)
@@ -12,45 +15,12 @@ struct ProjectListView: View {
 
     @State private var isAddingProject = false
     @State private var newProjectName = ""
-    @State private var selection: UUID?
-
-    private var itemCountLabel: String {
-        "\(projects.count) project\(projects.count == 1 ? "" : "s")"
-    }
+    /// A Set binding (not a single UUID?) is what gives List its native
+    /// multi-select — Cmd/Shift-click work for free, matching Finder.
+    @State private var selection: Set<UUID> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("TEMP MARKER: PROJECT LIST VIEW")
-                .font(.caption.bold())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.blue, in: Capsule())
-                .padding(.horizontal)
-                .padding(.top, 8)
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Projects")
-                        .font(.largeTitle.bold())
-                        .foregroundStyle(.blue)
-                    Text(itemCountLabel)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button {
-                    isAddingProject = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.title3.weight(.semibold))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("New Project")
-            }
-            .padding(.horizontal)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
-
             // A selection binding (matching TaskListView, where drag-reorder
             // is confirmed working) — macOS's native list drag-reorder ties
             // into the same row-selection plumbing, so a List with no
@@ -61,7 +31,7 @@ struct ProjectListView: View {
                         Image(systemName: "folder")
                             .foregroundStyle(.secondary)
                         VStack(alignment: .leading) {
-                            Text(project.name)
+                            EditableNameText(name: nameBinding(for: project))
                             Text("\(remainingCount(project)) remaining")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -85,6 +55,7 @@ struct ProjectListView: View {
                             Mutations.deleteProject(project, in: modelContext)
                         }
                     }
+                    .listRowSeparator(.hidden)
                 }
                 .onMove { offsets, destination in
                     Mutations.reorder(projects, fromOffsets: offsets, toOffset: destination)
@@ -92,6 +63,7 @@ struct ProjectListView: View {
                 if isAddingProject {
                     TextField("Project name", text: $newProjectName)
                         .onSubmit(commitNewProject)
+                        .listRowSeparator(.hidden)
                 }
             }
             .listStyle(.inset)
@@ -100,15 +72,36 @@ struct ProjectListView: View {
                     ContentUnavailableView("No Projects", systemImage: "folder")
                 }
             }
+
+            // Bottom-left "+" (no header row above the list anymore) —
+            // matches OmniFocus's own placement for adding a new project.
+            HStack {
+                Button {
+                    isAddingProject = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Project")
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
         }
         // Deliberately no .navigationTitle — this view is embedded inline
         // inside the content column now, not a standalone NavigationSplitView
         // column; see TaskListView's comment for why that matters on macOS.
         .onChange(of: selection) { _, newValue in
-            if let newValue {
-                onSelectProject(newValue)
-            }
+            onSelectionChange(newValue)
         }
+    }
+
+    private func nameBinding(for project: Project) -> Binding<String> {
+        Binding(
+            get: { project.name },
+            set: { project.name = $0; project.updatedAt = Date() }
+        )
     }
 
     private func remainingCount(_ project: Project) -> Int {

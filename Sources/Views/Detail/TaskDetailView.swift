@@ -16,13 +16,6 @@ struct TaskDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("TEMP MARKER: TASK DETAIL VIEW")
-                    .font(.caption.bold())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.black, in: Capsule())
-
                 TextField("Title", text: $task.title)
                     .textFieldStyle(.plain)
                     .font(.title2.weight(.semibold))
@@ -38,7 +31,7 @@ struct TaskDetailView: View {
                 HStack {
                     Spacer()
                     Menu {
-                        Button("Delete Task", role: .destructive) {
+                        Button("Delete Action", role: .destructive) {
                             Mutations.deleteTask(task, in: modelContext)
                         }
                     } label: {

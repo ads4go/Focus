@@ -23,7 +23,7 @@ struct QuickEntryPanel: View {
     @FocusState private var isFocused: Bool
 
     private var headerText: String {
-        parentTaskID == nil ? "New Task" : "New Subtask"
+        parentTaskID == nil ? "New Action" : "New Subaction"
     }
 
     var body: some View {
@@ -31,7 +31,7 @@ struct QuickEntryPanel: View {
             Text(headerText)
                 .font(.headline)
 
-            TextField("Task title", text: $title)
+            TextField("Action title", text: $title)
                 .textFieldStyle(.roundedBorder)
                 .focused($isFocused)
                 .onSubmit(commit)

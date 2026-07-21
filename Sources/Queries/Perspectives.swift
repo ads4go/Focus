@@ -2,10 +2,17 @@ import Foundation
 
 enum Perspective: Hashable {
     case inbox
-    case flagged
-    case projects
-    case project(UUID)
-    case tag(UUID)
+    /// tagIDs filters which flagged tasks show; empty means no filter (all
+    /// flagged tasks) — matches OmniFocus, where its left pane narrows the
+    /// middle pane rather than requiring a selection to show anything.
+    case flagged(tagIDs: Set<UUID> = [])
+    /// projectIDs filters which tasks show; empty means no filter (every
+    /// task that has a project, across all of them). A single-element set
+    /// is also how Review's one-at-a-time paging is expressed.
+    case projects(Set<UUID> = [])
+    /// tagIDs filters which tasks show; empty means no filter (every task
+    /// that has at least one tag).
+    case tags(Set<UUID> = [])
 }
 
 /// A task paired with its subtasks, for feeding SwiftUI's `List(_:children:)` —
@@ -53,15 +60,22 @@ enum Perspectives {
         switch perspective {
         case .inbox:
             filtered = allTasks.filter { $0.projectID == nil && !$0.completed }
-        case .flagged:
-            filtered = allTasks.filter { $0.flagged && !$0.completed }
-        case .projects:
-            filtered = []
-        case .project(let projectID):
-            filtered = allTasks.filter { $0.projectID == projectID }
-        case .tag(let tagID):
-            let taskIDs = Set(allTaskTags.filter { $0.tagID == tagID }.map(\.taskID))
-            filtered = allTasks.filter { taskIDs.contains($0.id) }
+        case .flagged(let tagIDs):
+            let base = allTasks.filter { $0.flagged && !$0.completed }
+            filtered = tagIDs.isEmpty ? base : filterByTags(base, tagIDs: tagIDs, allTaskTags: allTaskTags)
+        case .projects(let projectIDs):
+            if projectIDs.isEmpty {
+                filtered = allTasks.filter { $0.projectID != nil }
+            } else {
+                filtered = allTasks.filter { $0.projectID.map(projectIDs.contains) ?? false }
+            }
+        case .tags(let tagIDs):
+            if tagIDs.isEmpty {
+                let taggedTaskIDs = Set(allTaskTags.map(\.taskID))
+                filtered = allTasks.filter { taggedTaskIDs.contains($0.id) }
+            } else {
+                filtered = filterByTags(allTasks, tagIDs: tagIDs, allTaskTags: allTaskTags)
+            }
         }
         return filtered.sorted(by: taskSortOrder)
     }
@@ -69,6 +83,13 @@ enum Perspectives {
     static func tags(for task: TaskItem, allTags: [Tag], allTaskTags: [TaskTag]) -> [Tag] {
         let tagIDs = Set(allTaskTags.filter { $0.taskID == task.id }.map(\.tagID))
         return allTags.filter { tagIDs.contains($0.id) }
+    }
+
+    /// Tasks carrying at least one of tagIDs — shared by both .flagged and
+    /// .tags, whose only difference is what they filter *before* this.
+    private static func filterByTags(_ tasks: [TaskItem], tagIDs: Set<UUID>, allTaskTags: [TaskTag]) -> [TaskItem] {
+        let matchingTaskIDs = Set(allTaskTags.filter { tagIDs.contains($0.tagID) }.map(\.taskID))
+        return tasks.filter { matchingTaskIDs.contains($0.id) }
     }
 
     /// Root tags (no parent) with their full child-tag subtree attached.
