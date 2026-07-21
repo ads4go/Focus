@@ -72,7 +72,6 @@ struct TagListView: View {
             .padding(.horizontal)
             .padding(.vertical, 8)
         }
-        .navigationTitle("Tags")
         .onChange(of: selection) { _, newValue in
             onSelectionChange(newValue)
         }

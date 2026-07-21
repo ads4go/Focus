@@ -63,8 +63,6 @@ struct ContentView: View {
     private var allTasks: [TaskItem]
     @Query(filter: #Predicate<Project> { $0.deletedAt == nil })
     private var allProjects: [Project]
-    @Query(filter: #Predicate<Tag> { $0.deletedAt == nil })
-    private var allTags: [Tag]
 
     private var rail: RailItem { railSelection ?? .inbox }
 
@@ -340,18 +338,12 @@ struct ContentView: View {
         )
     }
 
-    /// The Projects tab's header always reads "Projects" — each selected
-    /// project now gets its own dropdown section in the list below (see
-    /// TaskListView's projectSections), so the header no longer needs to
-    /// name the single selected project the way it used to. Review still
-    /// pages one project at a time, so it keeps naming the project it's
-    /// currently reviewing.
+    /// The middle-pane header always matches its rail button's own label —
+    /// never the name of whatever's selected in the left pane (each
+    /// selected project/tag gets its own dropdown section in the list
+    /// below instead; see TaskListView's projectSections/tagSections).
     private var projectsDetailTitle: String {
-        guard rail == .review else { return "Projects" }
-        guard selectedProjectIDs.count == 1, let id = selectedProjectIDs.first else {
-            return "Review"
-        }
-        return allProjects.first { $0.id == id }?.name ?? "Project"
+        rail == .review ? "Review" : "Projects"
     }
 
     /// Everything left of the (now top-level, universally collapsible)
@@ -403,7 +395,7 @@ struct ContentView: View {
         case .tags:
             TaskListView(
                 perspective: .tags(selectedTagIDs),
-                title: tagsDetailTitle,
+                title: "Tags",
                 selectedTaskID: $selectedTaskID
             )
         case .forecast:
@@ -421,12 +413,6 @@ struct ContentView: View {
         }
     }
 
-    private var tagsDetailTitle: String {
-        guard selectedTagIDs.count == 1, let id = selectedTagIDs.first else {
-            return "Tags"
-        }
-        return allTags.first { $0.id == id }?.name ?? "Tag"
-    }
 
     @ViewBuilder
     private var detailRightPane: some View {

@@ -25,8 +25,10 @@ struct ReviewView: View {
     }
 
     var body: some View {
+        // Deliberately no header (matching ProjectListView/TagListView) —
+        // the paging chevrons and due-count that used to live in one move
+        // to the toolbar below, alongside "Mark Reviewed".
         VStack(alignment: .leading, spacing: 0) {
-            header
             List(selection: $selection) {
                 ForEach(dueProjects) { project in
                     row(for: project)
@@ -40,7 +42,6 @@ struct ReviewView: View {
                 }
             }
         }
-        .navigationTitle("Review")
         .onChange(of: selection) { _, newValue in
             if let newValue {
                 onSelectProject(newValue)
@@ -53,37 +54,18 @@ struct ReviewView: View {
         }
         .toolbar {
             ToolbarItem {
+                Button { selectAdjacent(-1) } label: { Image(systemName: "chevron.up") }
+                    .disabled((selectedIndex ?? 0) <= 0)
+            }
+            ToolbarItem {
+                Button { selectAdjacent(1) } label: { Image(systemName: "chevron.down") }
+                    .disabled(selectedIndex.map { $0 >= dueProjects.count - 1 } ?? true)
+            }
+            ToolbarItem {
                 Button("Mark Reviewed", action: markSelectedReviewed)
                     .disabled(selection == nil)
             }
         }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text("Review")
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(.teal)
-                Spacer()
-                Button { selectAdjacent(-1) } label: { Image(systemName: "chevron.up") }
-                    .buttonStyle(.plain)
-                    .disabled((selectedIndex ?? 0) <= 0)
-                Button { selectAdjacent(1) } label: { Image(systemName: "chevron.down") }
-                    .buttonStyle(.plain)
-                    .disabled(selectedIndex.map { $0 >= dueProjects.count - 1 } ?? true)
-            }
-            if let selectedIndex {
-                Text("Project \(selectedIndex + 1) of \(dueProjects.count)")
-            } else {
-                Text("\(dueProjects.count) project\(dueProjects.count == 1 ? "" : "s") due")
-            }
-        }
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
     }
 
     private func row(for project: Project) -> some View {

@@ -250,7 +250,7 @@ struct ForecastView: View {
                 Mutations.toggleCompleted(task, in: modelContext)
             } label: {
                 Image(systemName: "circle")
-                    .font(.system(size: 16))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle((task.dueDate ?? .distantFuture) < Date() ? .red : .primary)
             }
             .buttonStyle(.plain)

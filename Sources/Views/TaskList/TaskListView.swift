@@ -108,6 +108,9 @@ struct TaskListView: View {
     /// Collapsed-state per project, keyed by Project.id — absent means
     /// expanded (mirrors ForecastView's collapsedSectionIDs).
     @State private var collapsedProjectIDs: Set<UUID> = []
+    /// Collapsed-state per tag, keyed by Tag.id — same shape as
+    /// collapsedProjectIDs, for the .tags perspective's tag sections.
+    @State private var collapsedTagIDs: Set<UUID> = []
 
     private var nodes: [TaskNode] {
         Perspectives.taskTree(for: perspective, allTasks: allTasks, allTaskTags: allTaskTags)
@@ -149,6 +152,50 @@ struct TaskListView: View {
                 }
             }
         )
+    }
+
+    /// A dropdown section for one tag, used only by the .tags perspective.
+    /// Unlike projects (one per task), a task can carry several tags, so a
+    /// task can legitimately appear under more than one tag's section here
+    /// — matching OmniFocus's own Tags perspective, which does the same.
+    private struct TagSection: Identifiable {
+        let id: UUID
+        let tag: Tag
+        let nodes: [TaskNode]
+    }
+
+    private var tagSections: [TagSection] {
+        guard case .tags(let selectedTagIDs) = perspective else { return [] }
+        return allTags.compactMap { tag in
+            guard selectedTagIDs.isEmpty || selectedTagIDs.contains(tag.id) else { return nil }
+            let groupNodes = nodes.filter { node in
+                allTaskTags.contains { $0.taskID == node.task.id && $0.tagID == tag.id }
+            }
+            guard !groupNodes.isEmpty else { return nil }
+            return TagSection(id: tag.id, tag: tag, nodes: groupNodes)
+        }
+    }
+
+    private func isTagExpandedBinding(for tagID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { !collapsedTagIDs.contains(tagID) },
+            set: { isExpanded in
+                if isExpanded {
+                    collapsedTagIDs.remove(tagID)
+                } else {
+                    collapsedTagIDs.insert(tagID)
+                }
+            }
+        )
+    }
+
+    /// True for the .flagged perspective specifically — it stays a flat
+    /// list (unlike Projects/Tags, flagged items aren't grouped by
+    /// anything), but its rows still indent to the same depth a dropdown
+    /// section's rows would, for visual consistency with the other tabs.
+    private var isFlaggedPerspective: Bool {
+        if case .flagged = perspective { return true }
+        return false
     }
 
     /// Mirrors RailItem.tint so a perspective's task list carries the same
@@ -273,11 +320,41 @@ struct TaskListView: View {
                                 .listRowSeparator(.hidden)
                         }
                     }
+                } else if case .tags = perspective {
+                    // Same header/indent/divider shape as Projects, but no
+                    // .onMove — a task can appear under more than one tag
+                    // section, so "reorder within this section" has no
+                    // single well-defined meaning the way it does for a
+                    // task's one project.
+                    ForEach(Array(tagSections.enumerated()), id: \.element.id) { index, section in
+                        let expanded = isTagExpandedBinding(for: section.id)
+                        SectionHeaderRow(isExpanded: expanded) {
+                            Text(section.tag.name)
+                                .font(.headline)
+                        }
+                        .listRowSeparator(.hidden)
+                        if expanded.wrappedValue {
+                            ForEach(Array(section.nodes.enumerated()), id: \.element.id) { rowIndex, node in
+                                taskRow(for: node)
+                                    .padding(.top, rowIndex == 0 ? 6 : 0)
+                            }
+                            .padding(.leading, sectionHeaderLabelIndent)
+                        }
+                        if index < tagSections.count - 1 {
+                            Divider()
+                                .listRowSeparator(.hidden)
+                        }
+                    }
                 } else {
+                    // .inbox and .flagged: no grouping, but .flagged still
+                    // indents to the same depth a dropdown section's rows
+                    // would, matching Projects/Tags visually even without
+                    // a header above it.
                     ForEach(nodes) { node in taskRow(for: node) }
                         .onMove { offsets, destination in
                             Mutations.reorder(nodes.map(\.task), fromOffsets: offsets, toOffset: destination)
                         }
+                        .padding(.leading, isFlaggedPerspective ? sectionHeaderLabelIndent : 0)
                 }
             }
             .listStyle(.inset)

@@ -10,8 +10,6 @@ struct ProjectListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<Project> { $0.deletedAt == nil }, sort: \Project.sortOrder)
     private var projects: [Project]
-    @Query(filter: #Predicate<TaskItem> { $0.deletedAt == nil })
-    private var allTasks: [TaskItem]
 
     @State private var isAddingProject = false
     @State private var newProjectName = ""
@@ -29,13 +27,8 @@ struct ProjectListView: View {
                 ForEach(projects) { project in
                     HStack {
                         Image(systemName: "folder")
-                            .foregroundStyle(.secondary)
-                        VStack(alignment: .leading) {
-                            EditableNameText(name: nameBinding(for: project))
-                            Text("\(remainingCount(project)) remaining")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                            .foregroundStyle(.blue)
+                        EditableNameText(name: nameBinding(for: project))
                         Spacer()
                         if project.isCompleted {
                             Image(systemName: "checkmark.circle.fill")
@@ -102,10 +95,6 @@ struct ProjectListView: View {
             get: { project.name },
             set: { project.name = $0; project.updatedAt = Date() }
         )
-    }
-
-    private func remainingCount(_ project: Project) -> Int {
-        allTasks.filter { $0.projectID == project.id && !$0.completed }.count
     }
 
     private func setReviewInterval(_ project: Project, _ days: Int?) {

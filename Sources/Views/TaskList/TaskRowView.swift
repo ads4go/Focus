@@ -18,7 +18,7 @@ struct TaskRowView: View {
         HStack(alignment: .top, spacing: 8) {
             Button(action: onToggleComplete) {
                 Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 16))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(checkboxTint)
             }
             .buttonStyle(.plain)
