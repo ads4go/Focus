@@ -29,6 +29,7 @@ final class Project {
         flagged: Bool = false,
         dueDate: Date? = nil,
         deferDate: Date? = nil,
+        folderID: UUID? = nil,
         sortOrder: Int = Int(Date().timeIntervalSince1970),
         reviewIntervalDays: Int? = 7,
         lastReviewedAt: Date? = nil,
@@ -43,6 +44,7 @@ final class Project {
         self.flagged = flagged
         self.dueDate = dueDate
         self.deferDate = deferDate
+        self.folderID = folderID
         self.sortOrder = sortOrder
         self.reviewIntervalDays = reviewIntervalDays
         self.lastReviewedAt = lastReviewedAt

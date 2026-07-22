@@ -37,11 +37,41 @@ struct TagDTO: Codable {
     }
 }
 
+struct FolderDTO: Codable {
+    let id: UUID
+    var name: String
+    var sortOrder: Int
+    var createdAt: Date
+    var updatedAt: Date
+    var deletedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case sortOrder = "sort_order"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case deletedAt = "deleted_at"
+    }
+
+    init(_ folder: Folder) {
+        id = folder.id
+        name = folder.name
+        sortOrder = folder.sortOrder
+        createdAt = folder.createdAt
+        updatedAt = folder.updatedAt
+        deletedAt = folder.deletedAt
+    }
+}
+
 struct ProjectDTO: Codable {
     let id: UUID
     var name: String
     var notes: String
     var isCompleted: Bool
+    var flagged: Bool
+    var dueDate: Date?
+    var deferDate: Date?
+    var folderID: UUID?
     var sortOrder: Int
     var reviewIntervalDays: Int?
     var lastReviewedAt: Date?
@@ -50,8 +80,11 @@ struct ProjectDTO: Codable {
     var deletedAt: Date?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, notes
+        case id, name, notes, flagged
         case isCompleted = "is_completed"
+        case dueDate = "due_date"
+        case deferDate = "defer_date"
+        case folderID = "folder_id"
         case sortOrder = "sort_order"
         case reviewIntervalDays = "review_interval_days"
         case lastReviewedAt = "last_reviewed_at"
@@ -65,6 +98,10 @@ struct ProjectDTO: Codable {
         name = project.name
         notes = project.notes
         isCompleted = project.isCompleted
+        flagged = project.flagged
+        dueDate = project.dueDate
+        deferDate = project.deferDate
+        folderID = project.folderID
         sortOrder = project.sortOrder
         reviewIntervalDays = project.reviewIntervalDays
         lastReviewedAt = project.lastReviewedAt
@@ -118,6 +155,33 @@ struct TaskDTO: Codable {
         createdAt = task.createdAt
         updatedAt = task.updatedAt
         deletedAt = task.deletedAt
+    }
+}
+
+struct ProjectTagDTO: Codable {
+    let id: UUID
+    var projectID: UUID
+    var tagID: UUID
+    var createdAt: Date
+    var updatedAt: Date
+    var deletedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case projectID = "project_id"
+        case tagID = "tag_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case deletedAt = "deleted_at"
+    }
+
+    init(_ projectTag: ProjectTag) {
+        id = projectTag.id
+        projectID = projectTag.projectID
+        tagID = projectTag.tagID
+        createdAt = projectTag.createdAt
+        updatedAt = projectTag.updatedAt
+        deletedAt = projectTag.deletedAt
     }
 }
 

@@ -44,6 +44,10 @@ enum SyncEngine {
         let since = SyncCursor.lastPushedAt
         do {
             try await pushDirty(
+                table: "folders", context: context,
+                predicate: #Predicate<Folder> { $0.updatedAt > since }
+            ) { FolderDTO($0) }
+            try await pushDirty(
                 table: "tags", context: context,
                 predicate: #Predicate<Tag> { $0.updatedAt > since }
             ) { TagDTO($0) }
@@ -51,6 +55,10 @@ enum SyncEngine {
                 table: "projects", context: context,
                 predicate: #Predicate<Project> { $0.updatedAt > since }
             ) { ProjectDTO($0) }
+            try await pushDirty(
+                table: "project_tags", context: context,
+                predicate: #Predicate<ProjectTag> { $0.updatedAt > since }
+            ) { ProjectTagDTO($0) }
             try await pushDirty(
                 table: "tasks", context: context,
                 predicate: #Predicate<TaskItem> { $0.updatedAt > since }
@@ -91,6 +99,17 @@ enum SyncEngine {
         var errors: [String] = []
 
         do {
+            let folders: [FolderDTO] = try await fetchPage(table: "folders", since: since)
+            for dto in folders { upsertFolder(dto, context: context) }
+            if let m = folders.map(\.updatedAt).max() {
+                maxSeenUpdatedAt = max(maxSeenUpdatedAt ?? m, m)
+            }
+            print("[SYNC] merged folders: \(folders.count)")
+        } catch {
+            errors.append("folders: \(error.localizedDescription)")
+        }
+
+        do {
             let tags: [TagDTO] = try await fetchPage(table: "tags", since: since)
             for dto in tags { upsertTag(dto, context: context) }
             if let m = tags.map(\.updatedAt).max() {
@@ -110,6 +129,17 @@ enum SyncEngine {
             print("[SYNC] merged projects: \(projects.count)")
         } catch {
             errors.append("projects: \(error.localizedDescription)")
+        }
+
+        do {
+            let projectTags: [ProjectTagDTO] = try await fetchPage(table: "project_tags", since: since)
+            for dto in projectTags { upsertProjectTag(dto, context: context) }
+            if let m = projectTags.map(\.updatedAt).max() {
+                maxSeenUpdatedAt = max(maxSeenUpdatedAt ?? m, m)
+            }
+            print("[SYNC] merged project_tags: \(projectTags.count)")
+        } catch {
+            errors.append("project_tags: \(error.localizedDescription)")
         }
 
         do {
@@ -172,6 +202,23 @@ enum SyncEngine {
     // Remote wins only if strictly newer than the local row — otherwise the
     // local copy is either already pushed or about to be, so leave it alone.
 
+    private static func upsertFolder(_ dto: FolderDTO, context: ModelContext) {
+        let dtoID = dto.id
+        let descriptor = FetchDescriptor<Folder>(predicate: #Predicate { $0.id == dtoID })
+        if let existing = try? context.fetch(descriptor).first {
+            guard dto.updatedAt > existing.updatedAt else { return }
+            existing.name = dto.name
+            existing.sortOrder = dto.sortOrder
+            existing.updatedAt = dto.updatedAt
+            existing.deletedAt = dto.deletedAt
+        } else {
+            context.insert(Folder(
+                id: dto.id, name: dto.name, sortOrder: dto.sortOrder,
+                createdAt: dto.createdAt, updatedAt: dto.updatedAt, deletedAt: dto.deletedAt
+            ))
+        }
+    }
+
     private static func upsertTag(_ dto: TagDTO, context: ModelContext) {
         let dtoID = dto.id
         let descriptor = FetchDescriptor<Tag>(predicate: #Predicate { $0.id == dtoID })
@@ -200,6 +247,10 @@ enum SyncEngine {
             existing.name = dto.name
             existing.notes = dto.notes
             existing.isCompleted = dto.isCompleted
+            existing.flagged = dto.flagged
+            existing.dueDate = dto.dueDate
+            existing.deferDate = dto.deferDate
+            existing.folderID = dto.folderID
             existing.sortOrder = dto.sortOrder
             existing.reviewIntervalDays = dto.reviewIntervalDays
             existing.lastReviewedAt = dto.lastReviewedAt
@@ -208,8 +259,26 @@ enum SyncEngine {
         } else {
             context.insert(Project(
                 id: dto.id, name: dto.name, notes: dto.notes, isCompleted: dto.isCompleted,
-                sortOrder: dto.sortOrder,
+                flagged: dto.flagged, dueDate: dto.dueDate, deferDate: dto.deferDate,
+                folderID: dto.folderID, sortOrder: dto.sortOrder,
                 reviewIntervalDays: dto.reviewIntervalDays, lastReviewedAt: dto.lastReviewedAt,
+                createdAt: dto.createdAt, updatedAt: dto.updatedAt, deletedAt: dto.deletedAt
+            ))
+        }
+    }
+
+    private static func upsertProjectTag(_ dto: ProjectTagDTO, context: ModelContext) {
+        let dtoID = dto.id
+        let descriptor = FetchDescriptor<ProjectTag>(predicate: #Predicate { $0.id == dtoID })
+        if let existing = try? context.fetch(descriptor).first {
+            guard dto.updatedAt > existing.updatedAt else { return }
+            existing.projectID = dto.projectID
+            existing.tagID = dto.tagID
+            existing.updatedAt = dto.updatedAt
+            existing.deletedAt = dto.deletedAt
+        } else {
+            context.insert(ProjectTag(
+                id: dto.id, projectID: dto.projectID, tagID: dto.tagID,
                 createdAt: dto.createdAt, updatedAt: dto.updatedAt, deletedAt: dto.deletedAt
             ))
         }

@@ -152,6 +152,42 @@ alter table public.tags
 -- Project review cadence (added after initial release)
 alter table public.projects add column review_interval_days integer;
 alter table public.projects add column last_reviewed_at timestamptz;
+
+-- Folders, project tags, and project metadata (added after initial release)
+create table public.folders (
+  id         uuid primary key,
+  owner_id   uuid not null default auth.uid() references auth.users(id),
+  name       text not null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+create index folders_owner_updated_idx on public.folders (owner_id, updated_at);
+alter table public.folders enable row level security;
+create policy "own rows only" on public.folders
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+
+create table public.project_tags (
+  id         uuid primary key,
+  owner_id   uuid not null default auth.uid() references auth.users(id),
+  project_id uuid not null,
+  tag_id     uuid not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+create index project_tags_owner_updated_idx on public.project_tags (owner_id, updated_at);
+create index project_tags_project_idx on public.project_tags (project_id);
+create index project_tags_tag_idx     on public.project_tags (tag_id);
+alter table public.project_tags enable row level security;
+create policy "own rows only" on public.project_tags
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+
+alter table public.projects add column if not exists flagged    boolean not null default false;
+alter table public.projects add column if not exists due_date   timestamptz;
+alter table public.projects add column if not exists defer_date timestamptz;
+alter table public.projects add column if not exists folder_id  uuid;
 ```
 
 ## How sync works
