@@ -49,42 +49,37 @@ struct EditableNameText: View {
     var font: Font = .body
     var strikethrough: Bool = false
     var foregroundColor: Color = .primary
+    /// When true the field is shown as an editable TextField immediately.
+    var isSelected: Bool = false
 
-    @State private var isEditing = false
     @State private var draft = ""
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        if isEditing {
+        if isSelected {
             TextField("Name", text: $draft)
                 .textFieldStyle(.plain)
                 .font(font)
                 .focused($isFocused)
-                .onAppear { isFocused = true }
+                .onAppear { draft = name }
                 .onSubmit { commit() }
                 .onChange(of: isFocused) { _, focused in
                     if !focused { commit() }
                 }
+                .onChange(of: isSelected) { _, selected in
+                    if selected { isFocused = true }
+                }
         } else {
-            Button {
-                draft = name
-                isEditing = true
-            } label: {
-                Text(name)
-                    .font(font)
-                    .strikethrough(strikethrough)
-                    .foregroundStyle(foregroundColor)
-            }
-            .buttonStyle(.plain)
+            Text(name)
+                .font(font)
+                .strikethrough(strikethrough)
+                .foregroundStyle(foregroundColor)
         }
     }
 
     private func commit() {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            name = trimmed
-        }
-        isEditing = false
+        if !trimmed.isEmpty { name = trimmed }
     }
 }
 
@@ -92,6 +87,7 @@ struct TaskListView: View {
     let perspective: Perspective
     let title: String
     @Binding var selectedTaskID: UUID?
+    var accentColorOverride: Color? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<TaskItem> { $0.deletedAt == nil })
@@ -202,6 +198,7 @@ struct TaskListView: View {
     /// accent color as its rail entry (Project/Tag detail lists use the
     /// rail color for the whole category rather than a per-item color).
     private var accentColor: Color {
+        if let accentColorOverride { return accentColorOverride }
         switch perspective {
         case .inbox: return .purple
         case .flagged: return .orange
@@ -437,7 +434,10 @@ private struct TaskRow: View {
             task: task,
             isSelected: task.id == selectedTaskID,
             projectName: projectName,
-            tagNames: tagNames
+            tagNames: tagNames,
+            allProjects: allProjects,
+            allTags: allTags,
+            allTaskTags: allTaskTags
         ) {
             Mutations.toggleCompleted(task, in: modelContext)
         }
@@ -448,8 +448,10 @@ private struct TaskRow: View {
         // independently reachable for VoiceOver on parent rows too.
         .accessibilityElement(children: .contain)
         .contextMenu {
-            Button("Add Subaction") {
-                onAddSubtask(task)
+            if task.parentTaskID == nil {
+                Button("Add Subaction") {
+                    onAddSubtask(task)
+                }
             }
             Button("Duplicate") {
                 Mutations.duplicateTask(task, in: modelContext)

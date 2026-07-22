@@ -7,6 +7,10 @@ final class Project {
     var name: String
     var notes: String
     var isCompleted: Bool
+    var flagged: Bool = false
+    var dueDate: Date?
+    var deferDate: Date?
+    var folderID: UUID?
     var sortOrder: Int = 0
     /// nil = no review cadence ("Never"). Both are Optional so — unlike
     /// sortOrder — no declaration-level default is needed for existing rows
@@ -22,6 +26,9 @@ final class Project {
         name: String,
         notes: String = "",
         isCompleted: Bool = false,
+        flagged: Bool = false,
+        dueDate: Date? = nil,
+        deferDate: Date? = nil,
         sortOrder: Int = Int(Date().timeIntervalSince1970),
         reviewIntervalDays: Int? = 7,
         lastReviewedAt: Date? = nil,
@@ -33,6 +40,9 @@ final class Project {
         self.name = name
         self.notes = notes
         self.isCompleted = isCompleted
+        self.flagged = flagged
+        self.dueDate = dueDate
+        self.deferDate = deferDate
         self.sortOrder = sortOrder
         self.reviewIntervalDays = reviewIntervalDays
         self.lastReviewedAt = lastReviewedAt

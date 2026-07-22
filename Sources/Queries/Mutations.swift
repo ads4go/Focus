@@ -11,6 +11,7 @@ protocol Orderable: AnyObject {
 extension TaskItem: Orderable {}
 extension Project: Orderable {}
 extension Tag: Orderable {}
+extension Folder: Orderable {}
 
 /// Every mutation to a synced model funnels through here so `updatedAt` is
 /// always stamped and deletes are always soft (see Sources/Sync/SyncEngine.swift
@@ -107,6 +108,24 @@ enum Mutations {
         }
     }
 
+    static func deleteFolder(_ folder: Folder, in context: ModelContext) {
+        let now = Date()
+        folder.deletedAt = now
+        folder.updatedAt = now
+
+        // Un-parent all projects in this folder rather than deleting them.
+        let folderID = folder.id
+        let descriptor = FetchDescriptor<Project>(
+            predicate: #Predicate { $0.folderID == folderID && $0.deletedAt == nil }
+        )
+        if let folderProjects = try? context.fetch(descriptor) {
+            for project in folderProjects {
+                project.folderID = nil
+                project.updatedAt = now
+            }
+        }
+    }
+
     static func deleteTag(_ tag: Tag, in context: ModelContext) {
         let now = Date()
         tag.deletedAt = now
@@ -177,6 +196,35 @@ enum Mutations {
         let tagID = tag.id
         let descriptor = FetchDescriptor<TaskTag>(
             predicate: #Predicate { $0.taskID == taskID && $0.tagID == tagID && $0.deletedAt == nil }
+        )
+        if let existing = try? context.fetch(descriptor).first {
+            let now = Date()
+            existing.deletedAt = now
+            existing.updatedAt = now
+        }
+    }
+
+    static func addTag(_ tag: Tag, toProject project: Project, in context: ModelContext) {
+        let projectID = project.id
+        let tagID = tag.id
+        let descriptor = FetchDescriptor<ProjectTag>(
+            predicate: #Predicate { $0.projectID == projectID && $0.tagID == tagID }
+        )
+        if let existing = try? context.fetch(descriptor).first {
+            if existing.deletedAt != nil {
+                existing.deletedAt = nil
+                existing.updatedAt = Date()
+            }
+            return
+        }
+        context.insert(ProjectTag(projectID: projectID, tagID: tagID))
+    }
+
+    static func removeTag(_ tag: Tag, fromProject project: Project, in context: ModelContext) {
+        let projectID = project.id
+        let tagID = tag.id
+        let descriptor = FetchDescriptor<ProjectTag>(
+            predicate: #Predicate { $0.projectID == projectID && $0.tagID == tagID && $0.deletedAt == nil }
         )
         if let existing = try? context.fetch(descriptor).first {
             let now = Date()

@@ -18,7 +18,10 @@ struct ContentView: View {
     /// both unavoidable side effects of its built-in transition. A plain
     /// HStack plus a hand-rolled divider (below) avoids both while keeping
     /// the same static-content wipe animation and adding real drag-resize.
-    @State private var isProjectsListCollapsed = false
+    /// Tracks which rail tabs have their left pane collapsed — each tab
+    /// remembers its own state independently so switching tabs restores
+    /// whatever the user last left it as.
+    @State private var collapsedRails: Set<RailItem> = []
     /// User-adjustable width of taskTier (the "left pane") while it's paired
     /// with a middle pane — every rail except Inbox (.projects/.review/
     /// .tags/.forecast/.flagged) shares this one mechanism and state
@@ -37,7 +40,7 @@ struct ContentView: View {
     /// clips a constant-width render (no reflow/jitter mid-animation).
     @State private var leftPaneWidth: CGFloat = 420
     /// Toggled by the "Inspect" toolbar button — same animated-clip +
-    /// drag-resize mechanism as isProjectsListCollapsed/leftPaneWidth,
+    /// drag-resize mechanism as collapsedRails.contains(rail)/leftPaneWidth,
     /// mirrored to the trailing edge since this pane sits at the window's
     /// right end: content is trailing-aligned so collapsing sweeps the
     /// clip window's left edge rightward (covering it) and revealing
@@ -56,6 +59,7 @@ struct ContentView: View {
     /// selected on the Tags tab.
     @State private var selectedFlaggedTagIDs: Set<UUID> = []
     @State private var selectedTaskID: UUID?
+    @State private var forecastSelectedDate: Date?
     @State private var isShowingQuickEntry = false
     @State private var pushDebounceTask: Task<Void, Never>?
 
@@ -81,12 +85,10 @@ struct ContentView: View {
 
         var width = railFootprint
         switch rail {
-        case .projects:
-            width += isProjectsListCollapsed
+        case .projects, .review, .tags, .forecast, .flagged:
+            width += collapsedRails.contains(rail)
                 ? Self.middlePaneMinWidth
                 : Self.leftPaneMinWidth + dividerWidth + Self.middlePaneMinWidth
-        case .review, .tags, .forecast, .flagged:
-            width += Self.leftPaneMinWidth + dividerWidth + Self.middlePaneMinWidth
         case .inbox:
             // Inbox has no middle pane of its own, but its single pane
             // shows the same kind of full task list the middle pane does
@@ -128,12 +130,10 @@ struct ContentView: View {
     /// space the left pane is genuinely occupying at that moment.
     private var leftAndMiddleSectionReserve: CGFloat {
         switch rail {
-        case .projects:
-            return isProjectsListCollapsed
+        case .projects, .review, .tags, .forecast, .flagged:
+            return collapsedRails.contains(rail)
                 ? Self.middlePaneMinWidth
                 : leftPaneWidth + Self.dividerWidth + Self.middlePaneMinWidth
-        case .review, .tags, .forecast, .flagged:
-            return leftPaneWidth + Self.dividerWidth + Self.middlePaneMinWidth
         case .inbox:
             return Self.leftPaneMinWidth
         }
@@ -210,7 +210,7 @@ struct ContentView: View {
                     .clipped()
             }
         }
-        .frame(minWidth: minWindowWidth, minHeight: 100)
+        .frame(minWidth: minWindowWidth, minHeight: 65)
         .sheet(isPresented: $isShowingQuickEntry) {
             QuickEntryPanel(defaultProjectID: defaultProjectIDForQuickEntry) {
                 isShowingQuickEntry = false
@@ -275,9 +275,13 @@ struct ContentView: View {
             selectedTaskID = nil
             return
         }
-        if item == .projects {
+        if item != .inbox {
             withAnimation(.easeInOut(duration: 0.28)) {
-                isProjectsListCollapsed.toggle()
+                if collapsedRails.contains(item) {
+                    collapsedRails.remove(item)
+                } else {
+                    collapsedRails.insert(item)
+                }
             }
         }
     }
@@ -313,7 +317,7 @@ struct ContentView: View {
         case .inbox:
             TaskListView(perspective: .inbox, title: "Inbox", selectedTaskID: $selectedTaskID)
         case .forecast:
-            ForecastCalendarView()
+            ForecastCalendarView(selectedDate: $forecastSelectedDate)
         case .flagged:
             // Flagged's left pane is a tag filter over flagged items, not
             // the flagged list itself — that now lives in detailLeftPane,
@@ -334,7 +338,8 @@ struct ContentView: View {
         TaskListView(
             perspective: .projects(selectedProjectIDs),
             title: projectsDetailTitle,
-            selectedTaskID: $selectedTaskID
+            selectedTaskID: $selectedTaskID,
+            accentColorOverride: rail == .review ? .teal : nil
         )
     }
 
@@ -359,7 +364,7 @@ struct ContentView: View {
         switch rail {
         case .projects, .review, .tags, .forecast, .flagged:
             let effectiveWidth = min(leftPaneWidth, maxLeftPaneWidth(totalWidth: totalWidth))
-            let isCollapsed = rail == .projects && isProjectsListCollapsed
+            let isCollapsed = collapsedRails.contains(rail)
             HStack(alignment: .top, spacing: 0) {
                 taskTier
                     .frame(width: effectiveWidth)
@@ -399,7 +404,7 @@ struct ContentView: View {
                 selectedTaskID: $selectedTaskID
             )
         case .forecast:
-            ForecastView(selectedTaskID: $selectedTaskID)
+            ForecastView(selectedTaskID: $selectedTaskID, selectedCalendarDate: $forecastSelectedDate)
         case .flagged:
             // taskTier holds the tag-filter list for this rail now; this
             // is the actual flagged task list, filtered by it.
@@ -422,9 +427,21 @@ struct ContentView: View {
                 selectedProjectIDs = [projectID]
                 selectedTaskID = nil
             }
+        } else if let project = selectedProject {
+            ProjectDetailView(project: project)
         } else {
-            ContentUnavailableView("No Action Selected", systemImage: "checklist")
+            Text("No Item Selected")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private var selectedProject: Project? {
+        guard (rail == .projects || rail == .review), selectedProjectIDs.count == 1,
+              let id = selectedProjectIDs.first
+        else { return nil }
+        return allProjects.first { $0.id == id }
     }
 
     private var selectedTask: TaskItem? {
@@ -479,7 +496,7 @@ struct ContentView: View {
 
 /// A thin draggable divider standing in for HSplitView's own — used where a
 /// pane also needs to animate its collapse/reveal, which HSplitView can't do
-/// (see isProjectsListCollapsed's doc comment). Drag deltas are applied
+/// (see collapsedRails.contains(rail)'s doc comment). Drag deltas are applied
 /// relative to the width at gesture start rather than added continuously, so
 /// they can't compound if a drag ends mid-frame.
 private struct ResizableDivider: View {

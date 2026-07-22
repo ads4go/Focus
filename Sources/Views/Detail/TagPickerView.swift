@@ -84,7 +84,7 @@ private struct TagChip: View {
 
 /// Minimal wrapping HStack — SwiftUI has no built-in flow layout, and this
 /// view is the only place Focus needs one.
-private struct FlowLayout: Layout {
+struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

@@ -28,9 +28,6 @@ struct RailView: View {
     private static let containerShape = RoundedRectangle(cornerRadius: 18, style: .continuous)
 
     var body: some View {
-        // ScrollView (not a plain VStack) so a short window makes the rail
-        // scrollable to reach the cut-off buttons, rather than just
-        // clipping them out of reach entirely.
         ScrollView {
             VStack(spacing: 2) {
                 ForEach(RailItem.allCases) { item in
@@ -47,6 +44,7 @@ struct RailView: View {
         .frame(width: 80)
         // A distinct gray card floating with a margin on all sides
         // (below), not chrome bleeding edge-to-edge.
+        .clipShape(Self.containerShape)
         .background(Self.containerColor, in: Self.containerShape)
         .overlay {
             if controlActiveState == .key {
@@ -64,7 +62,9 @@ struct RailView: View {
                     )
             }
         }
-        .padding(8)
+        .padding(.leading, 8)
+        .padding(.trailing, 0)
+        .padding(.vertical, 8)
     }
 }
 
@@ -107,15 +107,8 @@ private struct RailTile: View {
                 isSelected ? Color.secondary.opacity(0.25) : Color.clear,
                 in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
-            // Applied after .background (not before, which was the bug:
-            // .background always sizes itself to its child's *reported*
-            // size, and .padding restores the space it took when
-            // reporting upward — so padding placed before .background was
-            // invisible to it no matter the value). Placed after, it
-            // shrinks the visible/colored box itself and adds a
-            // transparent gutter around it, while the Button's own tap
-            // target (one level further out) still spans the full row.
             .padding(.horizontal, 1)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

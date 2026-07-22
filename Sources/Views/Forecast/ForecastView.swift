@@ -6,12 +6,17 @@ import SwiftData
 /// lives in ForecastCalendarView (the left pane).
 struct ForecastView: View {
     @Binding var selectedTaskID: UUID?
+    @Binding var selectedCalendarDate: Date?
 
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<TaskItem> { $0.deletedAt == nil && !$0.completed })
     private var incompleteTasks: [TaskItem]
     @Query(filter: #Predicate<Project> { $0.deletedAt == nil }, sort: \Project.name)
     private var allProjects: [Project]
+    @Query(filter: #Predicate<Tag> { $0.deletedAt == nil }, sort: \Tag.name)
+    private var allTags: [Tag]
+    @Query(filter: #Predicate<TaskTag> { $0.deletedAt == nil })
+    private var allTaskTags: [TaskTag]
 
     private let calendar = Calendar.current
     private var today: Date { calendar.startOfDay(for: Date()) }
@@ -40,12 +45,6 @@ struct ForecastView: View {
     /// expanded, so newly-appearing sections (e.g. a task becomes due
     /// tomorrow) default to open rather than needing to be seen once first.
     @State private var collapsedSectionIDs: Set<String> = []
-
-    /// Which strip tiles ("past", a day's dayID, "future") are selected —
-    /// a multi-select filter over the grouped list below, mirroring the
-    /// Projects/Tags left-pane filter pattern elsewhere in the app: empty
-    /// means no filter (show everything).
-    @State private var selectedStripIDs: Set<String> = []
 
     private var overdueTasks: [TaskItem] {
         incompleteTasks
@@ -86,8 +85,8 @@ struct ForecastView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider()
             strip
+            Divider()
             groupedList
         }
     }
@@ -99,9 +98,6 @@ struct ForecastView: View {
             Text("Forecast")
                 .font(.largeTitle.bold())
                 .foregroundStyle(.red)
-            Text("\(totalDueCount) item\(totalDueCount == 1 ? "" : "s") due")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
         }
         .padding(.horizontal)
         .padding(.top, 12)
@@ -113,28 +109,34 @@ struct ForecastView: View {
     private var strip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                stripTile(id: "past", label: "Past", count: overdueTasks.count)
+                let pastSelected = selectedCalendarDate.map { $0 < today } ?? false
+                stripTile(
+                    label: "Past", count: overdueTasks.count, isSelected: pastSelected,
+                    onTap: { selectedCalendarDate = pastSelected ? nil : .distantPast }
+                )
                 ForEach(stripDays, id: \.self) { day in
-                    stripTile(id: dayID(for: day), label: stripLabel(for: day), count: count(dueOn: day))
+                    let daySelected = selectedCalendarDate.map { calendar.isDate($0, inSameDayAs: day) } ?? false
+                    stripTile(
+                        label: stripLabel(for: day), count: count(dueOn: day), isSelected: daySelected,
+                        onTap: { selectedCalendarDate = daySelected ? nil : calendar.startOfDay(for: day) }
+                    )
                 }
-                stripTile(id: "future", label: "Future", count: futureCount)
+                let futureSelected = selectedCalendarDate.map { sel -> Bool in
+                    guard let last = stripDays.last else { return false }
+                    return sel > last
+                } ?? false
+                stripTile(
+                    label: "Future", count: futureCount, isSelected: futureSelected,
+                    onTap: { selectedCalendarDate = futureSelected ? nil : .distantFuture }
+                )
             }
             .padding(.horizontal)
         }
         .padding(.bottom, 8)
     }
 
-    /// A Set binding (matching Projects/Tags) rather than a single selected
-    /// id — Cmd-clicking several tiles filters the list to their union.
-    private func stripTile(id: String, label: String, count: Int) -> some View {
-        let isSelected = selectedStripIDs.contains(id)
-        return Button {
-            if isSelected {
-                selectedStripIDs.remove(id)
-            } else {
-                selectedStripIDs.insert(id)
-            }
-        } label: {
+    private func stripTile(label: String, count: Int, isSelected: Bool, onTap: @escaping () -> Void) -> some View {
+        Button(action: onTap) {
             VStack(spacing: 4) {
                 Text(label)
                     .font(.caption.weight(.medium))
@@ -177,20 +179,23 @@ struct ForecastView: View {
         return sections
     }
 
-    /// dateSections narrowed by the strip's selection — empty selection
-    /// means no filter (every section), matching Projects/Tags. A "Future"
-    /// tile has no single matching section id (unlike Past or a specific
-    /// day), so it's matched by date instead: any day beyond the strip's
-    /// last day.
     private var filteredDateSections: [DateSection] {
-        guard !selectedStripIDs.isEmpty else { return dateSections }
-        let lastStripDay = stripDays.last
-        return dateSections.filter { section in
-            if selectedStripIDs.contains(section.id) { return true }
-            if selectedStripIDs.contains("future"), let date = section.date, let lastStripDay, date > lastStripDay {
-                return true
+        guard let sel = selectedCalendarDate else { return dateSections }
+        // Any date before today (including distantPast sentinel) → Past section.
+        if sel < today {
+            return dateSections.filter { $0.id == "past" }
+        }
+        // Any date beyond the strip (including distantFuture sentinel) → future sections.
+        if let lastStripDay = stripDays.last, sel > lastStripDay {
+            return dateSections.filter { section in
+                guard let date = section.date else { return false }
+                return date > lastStripDay
             }
-            return false
+        }
+        // Specific day within the strip range.
+        return dateSections.filter { section in
+            guard let sectionDate = section.date else { return false }
+            return calendar.isDate(sectionDate, inSameDayAs: sel)
         }
     }
 
@@ -245,48 +250,20 @@ struct ForecastView: View {
     }
 
     private func row(for task: TaskItem) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Button {
-                Mutations.toggleCompleted(task, in: modelContext)
-            } label: {
-                Image(systemName: "circle")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle((task.dueDate ?? .distantFuture) < Date() ? .red : .primary)
-            }
-            .buttonStyle(.plain)
-
-            VStack(alignment: .leading, spacing: 2) {
-                EditableNameText(name: titleBinding(for: task))
-                if let projectID = task.projectID, let project = allProjects.first(where: { $0.id == projectID }) {
-                    Label(project.name, systemImage: "folder")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer()
-
-            if let due = task.dueDate {
-                Text(due.formatted(date: .omitted, time: .shortened))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            if task.flagged {
-                Image(systemName: "flag.fill")
-                    .foregroundStyle(.orange)
-                    .font(.caption)
-            }
+        let projectName = allProjects.first { $0.id == task.projectID }?.name
+        let tagNames = Perspectives.tags(for: task, allTags: allTags, allTaskTags: allTaskTags).map(\.name)
+        return TaskRowView(
+            task: task,
+            isSelected: task.id == selectedTaskID,
+            projectName: projectName,
+            tagNames: tagNames,
+            allProjects: allProjects,
+            allTags: allTags,
+            allTaskTags: allTaskTags
+        ) {
+            Mutations.toggleCompleted(task, in: modelContext)
         }
         .tag(task.id)
-        .padding(.vertical, 2)
-    }
-
-    private func titleBinding(for task: TaskItem) -> Binding<String> {
-        Binding(
-            get: { task.title },
-            set: { task.title = $0; task.updatedAt = Date() }
-        )
     }
 
     private func sectionTitle(for day: Date) -> String {

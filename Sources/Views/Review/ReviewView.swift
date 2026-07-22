@@ -36,6 +36,8 @@ struct ReviewView: View {
                 }
             }
             .listStyle(.inset)
+            .padding(.leading, -6)
+            .padding(.trailing, -10)
             .overlay {
                 if dueProjects.isEmpty {
                     ContentUnavailableView("Nothing Due for Review", systemImage: "checkmark.seal")

@@ -24,7 +24,7 @@ enum RailItem: String, CaseIterable, Hashable, Identifiable {
         case .inbox: return "tray.fill"
         case .forecast: return "calendar"
         case .flagged: return "flag.fill"
-        case .projects: return "folder.fill"
+        case .projects: return "circle.grid.3x3.fill"
         case .tags: return "tag.fill"
         case .review: return "checkmark.seal.fill"
         }

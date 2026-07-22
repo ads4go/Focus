@@ -49,6 +49,9 @@ struct TagListView: View {
                 }
             }
             .listStyle(.inset)
+            .padding(.top, 12)
+            .padding(.leading, -6)
+            .padding(.trailing, -10)
             .overlay {
                 if tags.isEmpty && !isAddingTag {
                     ContentUnavailableView("No Tags", systemImage: "tag")
@@ -128,7 +131,7 @@ private struct TagRow: View {
     private var label: some View {
         HStack {
             Image(systemName: "tag")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.pink)
             Text(node.tag.name)
             Spacer()
             Text("\(taskCount(node.tag))")

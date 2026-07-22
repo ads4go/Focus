@@ -160,7 +160,7 @@ struct TaskDetailView: View {
 /// A date field styled after OmniFocus's Defer/Due rows: the current value
 /// (or "None"), a tap target that opens a picker, and a quick-set chip row
 /// (today / +1d / +1w / +1m / clear) below it.
-private struct OptionalDateField: View {
+struct OptionalDateField: View {
     let label: String
     @Binding var date: Date?
     let touch: () -> Void
