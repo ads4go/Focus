@@ -71,24 +71,16 @@ struct ReviewView: View {
     }
 
     private func row(for project: Project) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Image(systemName: "folder")
-                    .foregroundStyle(.secondary)
-                EditableNameText(name: nameBinding(for: project))
+        HStack {
+            Image(systemName: "circle.grid.3x3.fill")
+                .foregroundStyle(Color(red: 109/255.0, green: 124/255.0, blue: 255/255.0))
+            EditableNameText(name: nameBinding(for: project))
+            Spacer()
+            if project.isDueForReview {
+                Circle()
+                    .fill(Color(red: 109/255.0, green: 124/255.0, blue: 255/255.0))
+                    .frame(width: 8, height: 8)
             }
-            Text("\(intervalLabel(project)) · \(lastReviewedLabel(project))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Menu(intervalLabel(project)) {
-                Button("Daily") { setInterval(project, 1) }
-                Button("Weekly") { setInterval(project, 7) }
-                Button("Monthly") { setInterval(project, 30) }
-                Button("Never") { setInterval(project, nil) }
-            }
-            .menuStyle(.borderlessButton)
-            .font(.caption2)
-            .fixedSize()
         }
         .tag(project.id)
     }
@@ -98,26 +90,6 @@ struct ReviewView: View {
             get: { project.name },
             set: { project.name = $0; project.updatedAt = Date() }
         )
-    }
-
-    private func intervalLabel(_ project: Project) -> String {
-        switch project.reviewIntervalDays {
-        case nil: return "No review"
-        case 1: return "Review daily"
-        case 7: return "Review weekly"
-        case 30: return "Review monthly"
-        case let days?: return "Review every \(days) days"
-        }
-    }
-
-    private func lastReviewedLabel(_ project: Project) -> String {
-        guard let date = project.lastReviewedAt else { return "never reviewed" }
-        return "last reviewed \(date.formatted(date: .abbreviated, time: .omitted))"
-    }
-
-    private func setInterval(_ project: Project, _ days: Int?) {
-        project.reviewIntervalDays = days
-        project.updatedAt = Date()
     }
 
     private func selectAdjacent(_ delta: Int) {

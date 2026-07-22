@@ -40,7 +40,7 @@ struct RailView: View {
             .padding(.horizontal, 3)
             .padding(.bottom, 10)
         }
-        .scrollIndicators(.hidden)
+        .scrollIndicators(.never)
         .frame(width: 80)
         // A distinct gray card floating with a margin on all sides
         // (below), not chrome bleeding edge-to-edge.
@@ -102,7 +102,8 @@ private struct RailTile: View {
                     .minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 11.5)
+            .padding(.top, 17)
+            .padding(.bottom, 6)
             .background(
                 isSelected ? Color.secondary.opacity(0.25) : Color.clear,
                 in: RoundedRectangle(cornerRadius: 16, style: .continuous)

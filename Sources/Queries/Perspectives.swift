@@ -41,8 +41,8 @@ enum Perspectives {
     /// that are individually flagged. A subtask nested under a task that
     /// doesn't itself match the perspective won't appear at all; that's an
     /// accepted gap rather than something worth a flattening/promotion pass.
-    static func taskTree(for perspective: Perspective, allTasks: [TaskItem], allTaskTags: [TaskTag]) -> [TaskNode] {
-        let roots = tasks(for: perspective, allTasks: allTasks, allTaskTags: allTaskTags)
+    static func taskTree(for perspective: Perspective, allTasks: [TaskItem], allTaskTags: [TaskTag], pinnedIDs: Set<UUID> = []) -> [TaskNode] {
+        let roots = tasks(for: perspective, allTasks: allTasks, allTaskTags: allTaskTags, pinnedIDs: pinnedIDs)
             .filter { $0.parentTaskID == nil }
         return roots.map { node(for: $0, allTasks: allTasks) }
     }
@@ -55,13 +55,13 @@ enum Perspectives {
         return TaskNode(task: task, children: children.isEmpty ? nil : children)
     }
 
-    static func tasks(for perspective: Perspective, allTasks: [TaskItem], allTaskTags: [TaskTag]) -> [TaskItem] {
+    static func tasks(for perspective: Perspective, allTasks: [TaskItem], allTaskTags: [TaskTag], pinnedIDs: Set<UUID> = []) -> [TaskItem] {
         let filtered: [TaskItem]
         switch perspective {
         case .inbox:
-            filtered = allTasks.filter { $0.projectID == nil && !$0.completed }
+            filtered = allTasks.filter { ($0.projectID == nil && !$0.completed) || pinnedIDs.contains($0.id) }
         case .flagged(let tagIDs):
-            let base = allTasks.filter { $0.flagged && !$0.completed }
+            let base = allTasks.filter { ($0.flagged && !$0.completed) || pinnedIDs.contains($0.id) }
             filtered = tagIDs.isEmpty ? base : filterByTags(base, tagIDs: tagIDs, allTaskTags: allTaskTags)
         case .projects(let projectIDs):
             if projectIDs.isEmpty {
@@ -108,12 +108,7 @@ enum Perspectives {
         return TagNode(tag: tag, children: children.isEmpty ? nil : children)
     }
 
-    /// Completed tasks sort after incomplete ones; within each group, manual
-    /// drag-to-reorder position (`sortOrder`) decides the order.
     private static func taskSortOrder(_ lhs: TaskItem, _ rhs: TaskItem) -> Bool {
-        if lhs.completed != rhs.completed {
-            return !lhs.completed && rhs.completed
-        }
         return lhs.sortOrder < rhs.sortOrder
     }
 }

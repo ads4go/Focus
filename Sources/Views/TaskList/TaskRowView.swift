@@ -15,6 +15,7 @@ struct TaskRowView: View {
     var allTags: [Tag] = []
     var allTaskTags: [TaskTag] = []
     let onToggleComplete: () -> Void
+    var onWillLeaveInbox: (() -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
     @State private var showingDueDatePicker = false
@@ -112,6 +113,7 @@ struct TaskRowView: View {
             Divider()
             ForEach(allProjects) { project in
                 Button {
+                    if task.projectID == nil { onWillLeaveInbox?() }
                     task.projectID = project.id
                     task.updatedAt = Date()
                 } label: {

@@ -40,7 +40,7 @@ enum RailItem: String, CaseIterable, Hashable, Identifiable {
         case .flagged: return .orange
         case .projects: return .blue
         case .tags: return .pink
-        case .review: return .teal
+        case .review: return Color(red: 109/255.0, green: 124/255.0, blue: 255/255.0)
         }
     }
 }

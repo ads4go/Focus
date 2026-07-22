@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppKit
 
 struct TagListView: View {
     /// Called with the full selection set on every change, including back
@@ -16,6 +17,7 @@ struct TagListView: View {
     @State private var isAddingTag = false
     @State private var newTagName = ""
     @State private var parentForNewTag: Tag?
+    @State private var editingTagID: UUID? = nil
     /// A Set binding (not a single UUID?) is what gives List its native
     /// multi-select — Cmd/Shift-click work for free, matching Finder.
     @State private var selection: Set<UUID> = []
@@ -36,7 +38,7 @@ struct TagListView: View {
         VStack(alignment: .leading, spacing: 0) {
             List(selection: $selection) {
                 ForEach(nodes) { node in
-                    TagRow(node: node, taskCount: taskCount) { tag in
+                    TagRow(node: node, taskCount: taskCount, selection: $selection, editingTagID: $editingTagID) { tag in
                         parentForNewTag = tag
                         isAddingTag = true
                     } onDelete: { tag in
@@ -62,18 +64,20 @@ struct TagListView: View {
             // matches ProjectListView's own placement for adding a new tag.
             HStack {
                 Button {
-                    parentForNewTag = nil
-                    isAddingTag = true
+                    let tag = Tag(name: "")
+                    modelContext.insert(tag)
+                    editingTagID = tag.id
                 } label: {
                     Image(systemName: "plus")
                         .font(.title3.weight(.semibold))
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("New Tag")
+                .buttonStyle(.borderless)
+                .frame(width: 28)
                 Spacer()
             }
             .padding(.horizontal)
-            .padding(.vertical, 8)
+            .padding(.top, 4)
+            .padding(.bottom, 10)
         }
         .onChange(of: selection) { _, newValue in
             onSelectionChange(newValue)
@@ -107,14 +111,23 @@ struct TagListView: View {
 private struct TagRow: View {
     let node: TagNode
     let taskCount: (Tag) -> Int
+    @Binding var selection: Set<UUID>
+    @Binding var editingTagID: UUID?
     let onAddSubtag: (Tag) -> Void
     let onDelete: (Tag) -> Void
+
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: { node.tag.name },
+            set: { node.tag.name = $0; node.tag.updatedAt = Date() }
+        )
+    }
 
     var body: some View {
         if let children = node.children {
             DisclosureGroup {
                 ForEach(children) { child in
-                    TagRow(node: child, taskCount: taskCount, onAddSubtag: onAddSubtag, onDelete: onDelete)
+                    TagRow(node: child, taskCount: taskCount, selection: $selection, editingTagID: $editingTagID, onAddSubtag: onAddSubtag, onDelete: onDelete)
                         .listRowSeparator(.hidden)
                 }
                 .onMove { offsets, destination in
@@ -132,16 +145,68 @@ private struct TagRow: View {
         HStack {
             Image(systemName: "tag")
                 .foregroundStyle(.pink)
-            Text(node.tag.name)
+            if node.tag.id == editingTagID {
+                AutoSelectTextField(text: nameBinding, onCommit: { editingTagID = nil })
+            } else {
+                EditableNameText(name: nameBinding, isSelected: selection.contains(node.tag.id))
+            }
             Spacer()
-            Text("\(taskCount(node.tag))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if node.tag.id != editingTagID {
+                Text("\(taskCount(node.tag))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .tag(node.tag.id)
         .contextMenu {
             Button("Add Subtag") { onAddSubtag(node.tag) }
             Button("Delete Tag", role: .destructive) { onDelete(node.tag) }
+        }
+    }
+}
+
+/// An NSTextField wrapper that immediately focuses and selects all text
+/// when it appears — bypassing SwiftUI focus timing entirely.
+private struct AutoSelectTextField: NSViewRepresentable {
+    @Binding var text: String
+    let onCommit: () -> Void
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(string: text)
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: NSFont.systemFontSize)
+        field.placeholderString = "Untitled Tag"
+        field.delegate = context.coordinator
+        DispatchQueue.main.async {
+            field.window?.makeFirstResponder(field)
+        }
+        return field
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: AutoSelectTextField
+        init(_ parent: AutoSelectTextField) { self.parent = parent }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            (obj.object as? NSTextField)?.currentEditor()?.selectAll(nil)
+        }
+        func controlTextDidChange(_ obj: Notification) {
+            if let field = obj.object as? NSTextField {
+                parent.text = field.stringValue
+            }
+        }
+        func controlTextDidEndEditing(_ obj: Notification) {
+            if let field = obj.object as? NSTextField {
+                let trimmed = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                parent.text = trimmed.isEmpty ? "Untitled Tag" : trimmed
+            }
+            parent.onCommit()
         }
     }
 }

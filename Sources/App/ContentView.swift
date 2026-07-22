@@ -7,6 +7,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthSessionStore.self) private var authStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.undoManager) private var undoManager
 
     @State private var railSelection: RailItem? = .inbox
     /// Toggled by re-tapping the already-selected Projects rail button —
@@ -261,6 +262,17 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave, object: modelContext)) { _ in
             schedulePush()
         }
+        .onAppear {
+            modelContext.undoManager = undoManager
+        }
+        .background {
+            Button("Undo") { undoManager?.undo() }
+                .keyboardShortcut("z", modifiers: .control)
+                .hidden()
+            Button("Redo") { undoManager?.redo() }
+                .keyboardShortcut("z", modifiers: [.control, .shift])
+                .hidden()
+        }
     }
 
     /// Re-tapping the already-selected rail item is repurposed as a toggle
@@ -339,7 +351,8 @@ struct ContentView: View {
             perspective: .projects(selectedProjectIDs),
             title: projectsDetailTitle,
             selectedTaskID: $selectedTaskID,
-            accentColorOverride: rail == .review ? .teal : nil
+            accentColorOverride: rail == .review ? Color(red: 109/255.0, green: 124/255.0, blue: 255/255.0) : nil,
+            reviewProject: rail == .review ? selectedProject : nil
         )
     }
 

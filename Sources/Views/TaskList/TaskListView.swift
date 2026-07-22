@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppKit
 
 /// Chevron frame width (14) + the HStack spacing to the label (10) in
 /// SectionHeaderRow below — exposed so callers can indent their section's
@@ -39,36 +40,99 @@ struct SectionHeaderRow<Label: View>: View {
     }
 }
 
-/// Plain text that turns into an inline-editable TextField when clicked —
-/// used for project and action names across the list panes. A real Button
-/// (not a bare tap gesture) wraps the display state, matching how the
-/// checkbox/flag buttons elsewhere in these rows already reliably take
-/// priority over List's own row-selection click.
+/// NSTextField subclass that positions the cursor at the click point on first
+/// focus instead of selecting all text (AppKit's default first-click behavior).
+///
+/// Root cause: NSTextField.becomeFirstResponder calls selectText(_:) which
+/// selects all text synchronously. We suppress that call via a flag, then
+/// manually position the insertion point after super.mouseDown returns.
+final class CursorPositioningField: NSTextField {
+    private var suppressSelectAll = false
+
+    override func mouseDown(with event: NSEvent) {
+        let alreadyEditing = currentEditor() != nil
+        if !alreadyEditing { suppressSelectAll = true }
+        super.mouseDown(with: event)
+        suppressSelectAll = false
+        // After first-click activation, place cursor at click position.
+        if !alreadyEditing, let editor = currentEditor() as? NSTextView {
+            let editorPt = editor.convert(event.locationInWindow, from: nil)
+            let raw = editor.characterIndex(for: editorPt)
+            let idx = raw == NSNotFound ? editor.string.count : raw
+            editor.setSelectedRange(NSRange(location: idx, length: 0))
+        }
+    }
+
+    override func selectText(_ sender: Any?) {
+        guard !suppressSelectAll else { return }
+        super.selectText(sender)
+    }
+}
+
+/// NSViewRepresentable wrapping CursorPositioningField so EditableNameText
+/// gets click-to-cursor behavior instead of click-to-select-all.
+private struct CursorTextField: NSViewRepresentable {
+    @Binding var text: String
+    var nsFont: NSFont = .systemFont(ofSize: NSFont.systemFontSize)
+    var onCommit: (() -> Void)? = nil
+
+    func makeNSView(context: Context) -> CursorPositioningField {
+        let field = CursorPositioningField(string: text)
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = nsFont
+        field.delegate = context.coordinator
+        return field
+    }
+
+    func updateNSView(_ nsView: CursorPositioningField, context: Context) {
+        if !context.coordinator.isEditing { nsView.stringValue = text }
+        nsView.font = nsFont
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: CursorTextField
+        var isEditing = false
+        init(_ parent: CursorTextField) { self.parent = parent }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            isEditing = true
+        }
+        func controlTextDidChange(_ obj: Notification) {
+            if let f = obj.object as? NSTextField { parent.text = f.stringValue }
+        }
+        func controlTextDidEndEditing(_ obj: Notification) {
+            isEditing = false
+            if let f = obj.object as? NSTextField {
+                let t = f.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty { parent.text = t }
+            }
+            parent.onCommit?()
+        }
+    }
+}
+
+/// Plain text that turns into an inline-editable field when the row is selected.
 struct EditableNameText: View {
     @Binding var name: String
     var font: Font = .body
     var strikethrough: Bool = false
     var foregroundColor: Color = .primary
-    /// When true the field is shown as an editable TextField immediately.
     var isSelected: Bool = false
-
-    @State private var draft = ""
-    @FocusState private var isFocused: Bool
+    var onCommit: (() -> Void)? = nil
+    var selectAllOnFocus: Bool = false
 
     var body: some View {
         if isSelected {
-            TextField("Name", text: $draft)
-                .textFieldStyle(.plain)
-                .font(font)
-                .focused($isFocused)
-                .onAppear { draft = name }
-                .onSubmit { commit() }
-                .onChange(of: isFocused) { _, focused in
-                    if !focused { commit() }
-                }
-                .onChange(of: isSelected) { _, selected in
-                    if selected { isFocused = true }
-                }
+            CursorTextField(
+                text: $name,
+                nsFont: nsFont,
+                onCommit: onCommit
+            )
+            .frame(maxWidth: .infinity)
         } else {
             Text(name)
                 .font(font)
@@ -77,9 +141,12 @@ struct EditableNameText: View {
         }
     }
 
-    private func commit() {
-        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { name = trimmed }
+    private var nsFont: NSFont {
+        switch font {
+        case .headline: return .boldSystemFont(ofSize: NSFont.systemFontSize)
+        case .largeTitle: return .systemFont(ofSize: NSFont.systemFontSize + 10, weight: .bold)
+        default: return .systemFont(ofSize: NSFont.systemFontSize)
+        }
     }
 }
 
@@ -88,6 +155,7 @@ struct TaskListView: View {
     let title: String
     @Binding var selectedTaskID: UUID?
     var accentColorOverride: Color? = nil
+    var reviewProject: Project? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<TaskItem> { $0.deletedAt == nil })
@@ -101,6 +169,7 @@ struct TaskListView: View {
 
     @State private var subtaskParent: TaskItem?
     @State private var isAddingInboxTask = false
+    @State private var pinnedIDs: Set<UUID> = []
     /// Collapsed-state per project, keyed by Project.id — absent means
     /// expanded (mirrors ForecastView's collapsedSectionIDs).
     @State private var collapsedProjectIDs: Set<UUID> = []
@@ -109,7 +178,7 @@ struct TaskListView: View {
     @State private var collapsedTagIDs: Set<UUID> = []
 
     private var nodes: [TaskNode] {
-        Perspectives.taskTree(for: perspective, allTasks: allTasks, allTaskTags: allTaskTags)
+        Perspectives.taskTree(for: perspective, allTasks: allTasks, allTaskTags: allTaskTags, pinnedIDs: pinnedIDs)
     }
 
     /// A dropdown section for one project, used only by the .projects
@@ -128,6 +197,26 @@ struct TaskListView: View {
             guard let groupNodes = grouped[project.id], !groupNodes.isEmpty else { return nil }
             return ProjectSection(id: project.id, project: project, nodes: groupNodes)
         }
+    }
+
+    private func reviewIntervalLabel(_ project: Project) -> String {
+        switch project.reviewIntervalDays {
+        case nil: return "No Review"
+        case 1: return "Review Daily"
+        case 7: return "Review Weekly"
+        case 30: return "Review Monthly"
+        case let days?: return "Review Every \(days) Days"
+        }
+    }
+
+    private func lastReviewedLabel(_ project: Project) -> String {
+        guard let date = project.lastReviewedAt else { return "never reviewed" }
+        return "last reviewed \(date.formatted(date: .abbreviated, time: .omitted))"
+    }
+
+    private func setReviewInterval(_ project: Project, _ days: Int?) {
+        project.reviewIntervalDays = days
+        project.updatedAt = Date()
     }
 
     private func nameBinding(for project: Project) -> Binding<String> {
@@ -250,6 +339,8 @@ struct TaskListView: View {
             allTaskTags: allTaskTags,
             modelContext: modelContext,
             showsProjectBreadcrumb: showsProjectBreadcrumb,
+            pinnedIDs: $pinnedIDs,
+            onPin: { pinnedIDs.insert($0) },
             onAddSubtask: { subtaskParent = $0 }
         )
         .listRowSeparator(.hidden)
@@ -257,15 +348,10 @@ struct TaskListView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.largeTitle.bold())
-                        .foregroundStyle(accentColor)
-                    Text(itemCountLabel)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(accentColor)
                 Spacer()
                 if perspective == .inbox {
                     Button {
@@ -277,10 +363,52 @@ struct TaskListView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("New Inbox Action")
                 }
+                if let reviewProject {
+                    Button("Mark Reviewed") {
+                        reviewProject.lastReviewedAt = Date()
+                        reviewProject.updatedAt = Date()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(accentColor, in: RoundedRectangle(cornerRadius: 8))
+                }
             }
             .padding(.horizontal)
             .padding(.top, 12)
-            .padding(.bottom, 6)
+            .padding(.bottom, reviewProject == nil ? 2 : 4)
+
+            if reviewProject == nil {
+                Text(itemCountLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
+                    .padding(.bottom, 4)
+            }
+
+            if let reviewProject {
+                HStack(spacing: 4) {
+                    Menu {
+                        Button("Daily") { setReviewInterval(reviewProject, 1) }
+                        Button("Weekly") { setReviewInterval(reviewProject, 7) }
+                        Button("Monthly") { setReviewInterval(reviewProject, 30) }
+                        Button("Never") { setReviewInterval(reviewProject, nil) }
+                    } label: {
+                        Text(reviewIntervalLabel(reviewProject))
+                            .font(.subheadline)
+                            .foregroundStyle(accentColor)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    Text("•  \(lastReviewedLabel(reviewProject))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 4)
+            }
 
             Divider()
 
@@ -376,6 +504,9 @@ struct TaskListView: View {
                 isAddingInboxTask = false
             }
         }
+        .onChange(of: perspective) { _, _ in
+            pinnedIDs = []
+        }
     }
 }
 
@@ -390,6 +521,8 @@ private struct TaskRow: View {
     let allTaskTags: [TaskTag]
     let modelContext: ModelContext
     let showsProjectBreadcrumb: Bool
+    @Binding var pinnedIDs: Set<UUID>
+    let onPin: (UUID) -> Void
     let onAddSubtask: (TaskItem) -> Void
 
     var body: some View {
@@ -404,6 +537,8 @@ private struct TaskRow: View {
                         allTaskTags: allTaskTags,
                         modelContext: modelContext,
                         showsProjectBreadcrumb: showsProjectBreadcrumb,
+                        pinnedIDs: $pinnedIDs,
+                        onPin: onPin,
                         onAddSubtask: onAddSubtask
                     )
                     .listRowSeparator(.hidden)
@@ -437,10 +572,13 @@ private struct TaskRow: View {
             tagNames: tagNames,
             allProjects: allProjects,
             allTags: allTags,
-            allTaskTags: allTaskTags
-        ) {
-            Mutations.toggleCompleted(task, in: modelContext)
-        }
+            allTaskTags: allTaskTags,
+            onToggleComplete: {
+                if task.completed { pinnedIDs.remove(task.id) } else { pinnedIDs.insert(task.id) }
+                Mutations.toggleCompleted(task, in: modelContext)
+            },
+            onWillLeaveInbox: { pinnedIDs.insert(task.id) }
+        )
         .tag(task.id)
         // Without this, DisclosureGroup's label flattens the row (including
         // the checkbox button) into a single generic accessibility element
@@ -462,6 +600,11 @@ private struct TaskRow: View {
                 task.updatedAt = Date()
             }
             Button(task.completed ? "Mark Incomplete" : "Complete") {
+                if task.completed {
+                    pinnedIDs.remove(task.id)
+                } else {
+                    pinnedIDs.insert(task.id)
+                }
                 Mutations.toggleCompleted(task, in: modelContext)
             }
             Menu("Move to Project") {
