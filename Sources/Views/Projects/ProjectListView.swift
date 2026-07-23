@@ -9,6 +9,11 @@ struct ProjectListView: View {
     private var projects: [Project]
     @Query(filter: #Predicate<Folder> { $0.deletedAt == nil }, sort: \Folder.sortOrder)
     private var folders: [Folder]
+    /// Only needed so a task dragged from the middle pane can be looked up
+    /// by id and reassigned when dropped on a project row here — see
+    /// projectRow's .dropDestination.
+    @Query(filter: #Predicate<TaskItem> { $0.deletedAt == nil })
+    private var allTasks: [TaskItem]
 
     @State private var isAddingProject = false
     @State private var isAddingFolder = false
@@ -172,6 +177,26 @@ struct ProjectListView: View {
         .tag(project.id)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
         .draggable(project.id.uuidString)
+        // A task dragged from the middle pane and dropped here is
+        // reassigned to this project, appended at the end of its list —
+        // the left-pane half of the same drag-and-drop affiliation
+        // change TaskListView's own rows/section headers support.
+        .dropDestination(for: String.self) { items, _ in
+            guard let uuidString = items.first,
+                  let draggedID = UUID(uuidString: uuidString),
+                  let dragged = allTasks.first(where: { $0.id == draggedID })
+            else { return false }
+            if dragged.projectID != project.id {
+                dragged.projectID = project.id
+                dragged.updatedAt = Date()
+            }
+            let lastSortOrder = allTasks
+                .filter { $0.projectID == project.id && $0.id != dragged.id }
+                .map(\.sortOrder)
+                .max()
+            dragged.sortOrder = Mutations.sortOrder(after: lastSortOrder, before: nil)
+            return true
+        }
         .contextMenu {
             Menu("Move to Folder") {
                 Button("No Folder") {

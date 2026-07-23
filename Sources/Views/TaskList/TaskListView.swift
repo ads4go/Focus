@@ -7,6 +7,39 @@ import AppKit
 /// content to line up with where the label's own text starts.
 let sectionHeaderLabelIndent: CGFloat = 24
 
+/// Indents a subaction's row so its checkbox lines up with where its
+/// parent's own text starts — TaskRowView's fixed checkbox width plus the
+/// HStack spacing between that checkbox and the text next to it there —
+/// rather than whatever indent a system disclosure control would give.
+let subactionIndent: CGFloat = TaskRowView.checkboxWidth + 8
+
+/// Indents a project/tag/flagged section's task rows so their checkbox
+/// (not just the row's outer frame) lines up with where the section
+/// header's own label text starts. sectionHeaderLabelIndent marks that
+/// text's x-position, but TaskRowView adds its own 6pt .padding(.horizontal)
+/// inside that frame — subtracting it here cancels that back out so the
+/// checkbox itself, not empty padding in front of it, is what starts there.
+let sectionTaskIndent: CGFloat = sectionHeaderLabelIndent - 6
+
+/// Matches OmniFocus's own selected+editing row look: a dark charcoal fill
+/// with a muted blue border. Drawn entirely by hand (TaskRowView applies
+/// these directly, keyed off its own isSelected) rather than via List's
+/// native selection tint — macOS renders that as a fixed blue/gray
+/// highlight no matter what `.tint`/`.listRowBackground` is set to, so
+/// TaskListView's List no longer uses a `selection:` binding at all, and
+/// this is the replacement.
+let editingRowFillColor = Color(red: 40 / 255, green: 43 / 255, blue: 48 / 255)
+let editingRowBorderColor = Color(red: 54 / 255, green: 81 / 255, blue: 111 / 255)
+
+/// Project/Tag/Due labels and chips in a selected row's interactive
+/// metadata sit on top of editingRowBorderColor's solid blue fill —
+/// .secondary/.tertiary (calibrated for a plain window background) read as
+/// nearly invisible there. These fixed, lighter tones replace them in that
+/// context only, matching OmniFocus's own lighter-gray chip treatment.
+let selectedMetadataLabelColor = Color.white.opacity(0.75)
+let selectedChipBackground = Color.white.opacity(0.85)
+let selectedChipTextColor = Color(red: 35 / 255, green: 38 / 255, blue: 44 / 255)
+
 /// A collapsible section header row — gray chevron + label — used for this
 /// app's "dropdown" sections (Projects grouping here, Forecast's date
 /// sections). Deliberately NOT a real DisclosureGroup: giving a
@@ -74,15 +107,38 @@ final class CursorPositioningField: NSTextField {
 private struct CursorTextField: NSViewRepresentable {
     @Binding var text: String
     var nsFont: NSFont = .systemFont(ofSize: NSFont.systemFontSize)
+    var placeholder: String = ""
     var onCommit: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> CursorPositioningField {
         let field = CursorPositioningField(string: text)
         field.isBezeled = false
-        field.drawsBackground = false
+        field.isBordered = false
+        // Opaque, painted with the *actual* matching row color — not
+        // drawsBackground = false / .clear. A `red` test proved this field
+        // (and its field editor) render whatever color they're given
+        // immediately and reliably; `.clear` specifically was the problem,
+        // since on macOS a transparent NSTextField/NSTextView reveals
+        // whatever's *behind* it at the raw AppKit compositing layer —
+        // which turns out to be plain black here, not this row's SwiftUI
+        // `.background()` (that SwiftUI layer apparently isn't actually
+        // compositing behind this NSViewRepresentable the way it looks
+        // like it should). Painting the real color directly sidesteps
+        // that compositing question entirely.
+        field.drawsBackground = true
+        field.backgroundColor = NSColor(editingRowFillColor)
         field.focusRingType = .none
         field.font = nsFont
+        field.placeholderString = placeholder.isEmpty ? nil : placeholder
         field.delegate = context.coordinator
+        // This view is only ever created the moment a row becomes selected
+        // (EditableNameText swaps Text for this field), so focusing here —
+        // not just on click, unlike CursorPositioningField's own mouseDown
+        // handling — is what puts the cursor in a freshly created row's
+        // title immediately, with no click required.
+        DispatchQueue.main.async {
+            field.window?.makeFirstResponder(field)
+        }
         return field
     }
 
@@ -96,11 +152,23 @@ private struct CursorTextField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: CursorTextField
         var isEditing = false
+
         init(_ parent: CursorTextField) { self.parent = parent }
 
         func controlTextDidBeginEditing(_ obj: Notification) {
             isEditing = true
+            // The field itself is already painted with the real matching
+            // color (see makeNSView) — this covers the field editor too,
+            // confirmed reliable by a red test earlier (it rendered
+            // immediately and never reverted). No transparency involved
+            // this time, so no reset-on-layout/relayout-invalidation
+            // concerns either.
+            guard let editor = (obj.object as? NSTextField)?.currentEditor() as? NSTextView else { return }
+            editor.drawsBackground = true
+            editor.backgroundColor = NSColor(editingRowFillColor)
+            editor.enclosingScrollView?.drawsBackground = false
         }
+
         func controlTextDidChange(_ obj: Notification) {
             if let f = obj.object as? NSTextField { parent.text = f.stringValue }
         }
@@ -122,6 +190,7 @@ struct EditableNameText: View {
     var strikethrough: Bool = false
     var foregroundColor: Color = .primary
     var isSelected: Bool = false
+    var placeholder: String = ""
     var onCommit: (() -> Void)? = nil
     var selectAllOnFocus: Bool = false
 
@@ -130,6 +199,7 @@ struct EditableNameText: View {
             CursorTextField(
                 text: $name,
                 nsFont: nsFont,
+                placeholder: placeholder,
                 onCommit: onCommit
             )
             .frame(maxWidth: .infinity)
@@ -145,6 +215,7 @@ struct EditableNameText: View {
         switch font {
         case .headline: return .boldSystemFont(ofSize: NSFont.systemFontSize)
         case .largeTitle: return .systemFont(ofSize: NSFont.systemFontSize + 10, weight: .bold)
+        case .caption: return .systemFont(ofSize: NSFont.smallSystemFontSize)
         default: return .systemFont(ofSize: NSFont.systemFontSize)
         }
     }
@@ -168,7 +239,6 @@ struct TaskListView: View {
     private var allTags: [Tag]
 
     @State private var subtaskParent: TaskItem?
-    @State private var isAddingInboxTask = false
     @State private var pinnedIDs: Set<UUID> = []
     /// Collapsed-state per project, keyed by Project.id — absent means
     /// expanded (mirrors ForecastView's collapsedSectionIDs).
@@ -308,6 +378,18 @@ struct TaskListView: View {
         }
     }
 
+    /// False only for .projects — every row there already sits under its
+    /// own project's dropdown section (see projectSections), so the
+    /// picker chip would be a redundant second way to say the same thing;
+    /// affiliation there instead changes by dragging the row onto a
+    /// different project section (or a project in the left pane). Every
+    /// other perspective keeps the picker, since it's their only way to
+    /// assign/reassign a project at all.
+    private var showsProjectPicker: Bool {
+        if case .projects = perspective { return false }
+        return true
+    }
+
     private var itemCountLabel: String {
         let count = nodes.count
         let noun: String
@@ -330,18 +412,79 @@ struct TaskListView: View {
         return actionsText
     }
 
-    private func taskRow(for node: TaskNode) -> some View {
+    /// Creates a new inbox item in place, matching OmniFocus rather than
+    /// opening a popup: with nothing selected it lands at the bottom
+    /// of the list (its default sortOrder, a fresh timestamp, already sorts
+    /// after every existing task); with a row selected it's inserted right
+    /// after it instead, using the same fractional-sortOrder scheme
+    /// Mutations.reorder uses so no other row needs renumbering. Selecting
+    /// the new task both deselects whatever was selected before and — via
+    /// TaskRowView's isSelected-driven EditableNameText — immediately shows
+    /// it in edit mode with the cursor ready for typing.
+    private func createInboxTask() {
+        let siblings = nodes.map(\.task)
+        let newTask: TaskItem
+        if let selectedIndex = siblings.firstIndex(where: { $0.id == selectedTaskID }) {
+            let after = selectedIndex + 1 < siblings.count ? siblings[selectedIndex + 1].sortOrder : nil
+            newTask = TaskItem(
+                title: "",
+                sortOrder: Mutations.sortOrder(after: siblings[selectedIndex].sortOrder, before: after)
+            )
+        } else {
+            newTask = TaskItem(title: "")
+        }
+        modelContext.insert(newTask)
+        selectedTaskID = newTask.id
+    }
+
+    /// The Projects pane's own "+". Unlike createInboxTask's sibling-insert,
+    /// an existing selection here always adds a *subaction* nested under it
+    /// (see subaction.png) — this pane mixes several projects' actions
+    /// together, so "insert after the selected sibling" wouldn't have one
+    /// obvious project to land in the way Inbox's flat list does. With
+    /// nothing selected, it falls back to that same "lands at the bottom"
+    /// idea applied to the last project section shown, appended after its
+    /// own last top-level action.
+    private func createProjectsTask() {
+        let newTask: TaskItem
+        if let selectedID = selectedTaskID, let parent = allTasks.first(where: { $0.id == selectedID }) {
+            newTask = TaskItem(title: "", projectID: parent.projectID, parentTaskID: parent.id)
+        } else if let lastSection = projectSections.last {
+            let lastSortOrder = lastSection.nodes.map(\.task.sortOrder).max()
+            newTask = TaskItem(
+                title: "",
+                projectID: lastSection.project.id,
+                sortOrder: Mutations.sortOrder(after: lastSortOrder, before: nil)
+            )
+        } else {
+            return
+        }
+        modelContext.insert(newTask)
+        selectedTaskID = newTask.id
+    }
+
+    /// headerIndentCancel: only meaningful for a top-level row (the only
+    /// depth this helper is ever called at — deeper nesting recurses inside
+    /// TaskRow.body itself, not through here). Passed through so that if
+    /// this particular node later gains a subaction and grows its own
+    /// dropdown chevron, TaskRow can cancel out exactly this row's own
+    /// section indent — see TaskRow's headerIndentCancel doc comment.
+    private func taskRow(for node: TaskNode, siblings: [TaskItem], headerIndentCancel: CGFloat = 0) -> some View {
         TaskRow(
             node: node,
-            selectedTaskID: selectedTaskID,
+            selectedTaskID: $selectedTaskID,
+            siblings: siblings,
+            allTasks: allTasks,
             allProjects: allProjects,
             allTags: allTags,
             allTaskTags: allTaskTags,
             modelContext: modelContext,
             showsProjectBreadcrumb: showsProjectBreadcrumb,
+            showsProjectPicker: showsProjectPicker,
             pinnedIDs: $pinnedIDs,
             onPin: { pinnedIDs.insert($0) },
-            onAddSubtask: { subtaskParent = $0 }
+            onAddSubtask: { subtaskParent = $0 },
+            headerIndentCancel: headerIndentCancel
         )
         .listRowSeparator(.hidden)
     }
@@ -355,13 +498,22 @@ struct TaskListView: View {
                 Spacer()
                 if perspective == .inbox {
                     Button {
-                        isAddingInboxTask = true
+                        createInboxTask()
                     } label: {
                         Image(systemName: "plus")
                             .font(.title3.weight(.semibold))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("New Inbox Action")
+                } else if case .projects = perspective {
+                    Button {
+                        createProjectsTask()
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.title3.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(selectedTaskID == nil ? "New Action" : "New Subaction")
                 }
                 if let reviewProject {
                     Button("Mark Reviewed") {
@@ -416,8 +568,24 @@ struct TaskListView: View {
             // doesn't support `.onMove`, and `.dropDestination` inside a List
             // doesn't fire on macOS, so nested drag-to-reorder needs manual
             // ForEach+DisclosureGroup recursion (via TaskRow, a real
-            // recursive View type) with `.onMove` at each level.
-            List(selection: $selectedTaskID) {
+            // recursive View type). This List also has no `selection:`
+            // binding at all (unlike other lists in this app) — macOS
+            // renders a selected row's native highlight as a fixed
+            // blue/gray fill no matter what `.tint`/`.listRowBackground`
+            // it's given, so TaskRowView draws its own selected+editing
+            // background by hand instead (see editingRowFillColor /
+            // editingRowBorderColor), driven by tapping a row rather than
+            // List's own selection. Reordering is therefore drag-and-drop
+            // (.draggable/.dropDestination in TaskRow.rowContent) rather
+            // than List's native move handles, which relied on that same
+            // selection binding to initiate reliably.
+            //
+            // Wrapped in ScrollViewReader so a freshly created (or
+            // otherwise newly selected) row scrolls into view automatically
+            // — see the onChange below — instead of landing off-screen
+            // when the list is long.
+            ScrollViewReader { proxy in
+            List {
                 if case .projects = perspective {
                     // One header + conditionally-shown rows per project
                     // (matching ForecastView's date sections) rather than a
@@ -430,15 +598,29 @@ struct TaskListView: View {
                             EditableNameText(name: nameBinding(for: section.project), font: .headline)
                         }
                         .listRowSeparator(.hidden)
+                        // Dropping directly on the section's own header —
+                        // not just on one of its rows — reassigns to this
+                        // project too, appended at the end of its list.
+                        .dropDestination(for: String.self) { items, _ in
+                            guard let uuidString = items.first,
+                                  let draggedID = UUID(uuidString: uuidString),
+                                  let dragged = allTasks.first(where: { $0.id == draggedID })
+                            else { return false }
+                            if dragged.projectID != section.project.id {
+                                dragged.projectID = section.project.id
+                                dragged.updatedAt = Date()
+                            }
+                            let lastSortOrder = section.nodes.map(\.task.sortOrder).max()
+                            dragged.sortOrder = Mutations.sortOrder(after: lastSortOrder, before: nil)
+                            return true
+                        }
                         if expanded.wrappedValue {
+                            let siblings = section.nodes.map(\.task)
                             ForEach(Array(section.nodes.enumerated()), id: \.element.id) { rowIndex, node in
-                                taskRow(for: node)
+                                taskRow(for: node, siblings: siblings, headerIndentCancel: sectionTaskIndent)
                                     .padding(.top, rowIndex == 0 ? 6 : 0)
                             }
-                            .onMove { offsets, destination in
-                                Mutations.reorder(section.nodes.map(\.task), fromOffsets: offsets, toOffset: destination)
-                            }
-                            .padding(.leading, sectionHeaderLabelIndent)
+                            .padding(.leading, sectionTaskIndent)
                         }
                         if index < projectSections.count - 1 {
                             Divider()
@@ -447,8 +629,8 @@ struct TaskListView: View {
                     }
                 } else if case .tags = perspective {
                     // Same header/indent/divider shape as Projects, but no
-                    // .onMove — a task can appear under more than one tag
-                    // section, so "reorder within this section" has no
+                    // drag-reorder — a task can appear under more than one
+                    // tag section, so "reorder within this section" has no
                     // single well-defined meaning the way it does for a
                     // task's one project.
                     ForEach(Array(tagSections.enumerated()), id: \.element.id) { index, section in
@@ -460,10 +642,10 @@ struct TaskListView: View {
                         .listRowSeparator(.hidden)
                         if expanded.wrappedValue {
                             ForEach(Array(section.nodes.enumerated()), id: \.element.id) { rowIndex, node in
-                                taskRow(for: node)
+                                taskRow(for: node, siblings: [], headerIndentCancel: sectionTaskIndent)
                                     .padding(.top, rowIndex == 0 ? 6 : 0)
                             }
-                            .padding(.leading, sectionHeaderLabelIndent)
+                            .padding(.leading, sectionTaskIndent)
                         }
                         if index < tagSections.count - 1 {
                             Divider()
@@ -475,11 +657,11 @@ struct TaskListView: View {
                     // indents to the same depth a dropdown section's rows
                     // would, matching Projects/Tags visually even without
                     // a header above it.
-                    ForEach(nodes) { node in taskRow(for: node) }
-                        .onMove { offsets, destination in
-                            Mutations.reorder(nodes.map(\.task), fromOffsets: offsets, toOffset: destination)
-                        }
-                        .padding(.leading, isFlaggedPerspective ? sectionHeaderLabelIndent : 0)
+                    let siblings = nodes.map(\.task)
+                    ForEach(nodes) { node in
+                        taskRow(for: node, siblings: siblings, headerIndentCancel: isFlaggedPerspective ? sectionTaskIndent : 0)
+                    }
+                    .padding(.leading, isFlaggedPerspective ? sectionTaskIndent : 0)
                 }
             }
             .listStyle(.inset)
@@ -487,6 +669,25 @@ struct TaskListView: View {
                 if nodes.isEmpty {
                     ContentUnavailableView("No Actions", systemImage: "checkmark.circle")
                 }
+            }
+            .onChange(of: selectedTaskID) { _, newValue in
+                guard let newValue else { return }
+                // Deferred a tick, and NOT animated — selecting a row also
+                // expands it into edit mode (title field + Project/Tags/Due
+                // chips) in this same update, so the row's geometry is
+                // still settling right after. An animated scrollTo
+                // interpolates against whatever frame is current when it
+                // starts, which — while that geometry is still moving —
+                // overshoots past the row instead of landing on it. Calling
+                // it unanimated after a tick, once layout has caught up,
+                // lands directly on the row's real, final position instead.
+                DispatchQueue.main.async {
+                    // Slightly above .bottom (y: 1.0 exactly) so a sliver
+                    // of empty space is left below the row instead of it
+                    // sitting flush against the very edge of the list.
+                    proxy.scrollTo(newValue, anchor: UnitPoint(x: 0.5, y: 0.9))
+                }
+            }
             }
         }
         // Deliberately no .navigationTitle: on macOS, NavigationSplitView
@@ -497,11 +698,6 @@ struct TaskListView: View {
         .sheet(item: $subtaskParent) { parent in
             QuickEntryPanel(defaultProjectID: parent.projectID, parentTaskID: parent.id) {
                 subtaskParent = nil
-            }
-        }
-        .sheet(isPresented: $isAddingInboxTask) {
-            QuickEntryPanel(defaultProjectID: nil, parentTaskID: nil) {
-                isAddingInboxTask = false
             }
         }
         .onChange(of: perspective) { _, _ in
@@ -515,39 +711,85 @@ struct TaskListView: View {
 /// can't call itself (the opaque type would reference itself).
 private struct TaskRow: View {
     let node: TaskNode
-    let selectedTaskID: UUID?
+    @Binding var selectedTaskID: UUID?
+    /// Every task at this row's own nesting level (its section, or its
+    /// parent's subtasks) — used to compute where a drag-and-drop lands
+    /// (see Mutations.moveTask), since dropping needs to know this row's
+    /// actual neighbors, not just the row itself.
+    let siblings: [TaskItem]
+    /// Every task in the app, not just this section's — a cross-project
+    /// drop (see rowContent's dropDestination) needs to find the dragged
+    /// task even when it belongs to a different project than this row's,
+    /// so it's absent from `siblings`.
+    let allTasks: [TaskItem]
     let allProjects: [Project]
     let allTags: [Tag]
     let allTaskTags: [TaskTag]
     let modelContext: ModelContext
     let showsProjectBreadcrumb: Bool
+    var showsProjectPicker: Bool = true
     @Binding var pinnedIDs: Set<UUID>
     let onPin: (UUID) -> Void
     let onAddSubtask: (TaskItem) -> Void
+    /// How much of this row's own ambient leading indent (the section-level
+    /// padding its caller applied — see TaskListView's three taskRow(for:)
+    /// call sites) to cancel if this node turns out to have children. A
+    /// root-level action with no subactions sits flush with its siblings at
+    /// that ambient indent; the moment it gains one, it becomes a
+    /// SectionHeaderRow itself and picks up a chevron's own width — without
+    /// correction that pushes both the new chevron AND this row's checkbox
+    /// an extra sectionTaskIndent+24pt to the right. Canceling exactly this
+    /// row's own ambient indent brings the new chevron back flush with a
+    /// project/tag section's own chevron; the additional fixed -6 below
+    /// (on rowContent specifically) then cancels TaskRowView's own internal
+    /// leading padding so the checkbox lands back in line with sibling rows
+    /// that never grew a chevron. Left at its default (0) for every
+    /// recursively-rendered child, which isn't asked to align with
+    /// anything at this fixed depth.
+    var headerIndentCancel: CGFloat = 0
+
+    /// Expanded by default, matching Projects/Tags/Forecast's dropdown
+    /// sections elsewhere in this file.
+    @State private var isExpanded = true
 
     var body: some View {
         if let children = node.children {
-            DisclosureGroup {
-                ForEach(children) { child in
-                    TaskRow(
-                        node: child,
-                        selectedTaskID: selectedTaskID,
-                        allProjects: allProjects,
-                        allTags: allTags,
-                        allTaskTags: allTaskTags,
-                        modelContext: modelContext,
-                        showsProjectBreadcrumb: showsProjectBreadcrumb,
-                        pinnedIDs: $pinnedIDs,
-                        onPin: onPin,
-                        onAddSubtask: onAddSubtask
-                    )
-                    .listRowSeparator(.hidden)
+            // Group (not DisclosureGroup) — a real DisclosureGroup indents
+            // its nested rows by whatever fixed amount AppKit's outline
+            // view happens to use, which isn't something we can compute or
+            // override to line up exactly with the parent's text (see
+            // subactionIndent). Group is transparent to List's row
+            // flattening the same way a bare ForEach is, so the header and
+            // each child below still become independently selectable rows.
+            Group {
+                SectionHeaderRow(isExpanded: $isExpanded) {
+                    rowContent
+                        .padding(.leading, headerIndentCancel > 0 ? -6 : 0)
                 }
-                .onMove { offsets, destination in
-                    Mutations.reorder(children.map(\.task), fromOffsets: offsets, toOffset: destination)
+                .padding(.leading, -headerIndentCancel)
+                .listRowSeparator(.hidden)
+                if isExpanded {
+                    let childSiblings = children.map(\.task)
+                    ForEach(children) { child in
+                        TaskRow(
+                            node: child,
+                            selectedTaskID: $selectedTaskID,
+                            siblings: childSiblings,
+                            allTasks: allTasks,
+                            allProjects: allProjects,
+                            allTags: allTags,
+                            allTaskTags: allTaskTags,
+                            modelContext: modelContext,
+                            showsProjectBreadcrumb: showsProjectBreadcrumb,
+                            showsProjectPicker: showsProjectPicker,
+                            pinnedIDs: $pinnedIDs,
+                            onPin: onPin,
+                            onAddSubtask: onAddSubtask
+                        )
+                        .listRowSeparator(.hidden)
+                    }
+                    .padding(.leading, subactionIndent)
                 }
-            } label: {
-                rowContent
             }
         } else {
             rowContent
@@ -577,13 +819,34 @@ private struct TaskRow: View {
                 if task.completed { pinnedIDs.remove(task.id) } else { pinnedIDs.insert(task.id) }
                 Mutations.toggleCompleted(task, in: modelContext)
             },
-            onWillLeaveInbox: { pinnedIDs.insert(task.id) }
+            onWillLeaveInbox: { pinnedIDs.insert(task.id) },
+            showsProjectPicker: showsProjectPicker,
+            onSelect: { selectedTaskID = task.id }
         )
-        .tag(task.id)
-        // Without this, DisclosureGroup's label flattens the row (including
-        // the checkbox button) into a single generic accessibility element
-        // whenever the row has children — this keeps the checkbox and title
-        // independently reachable for VoiceOver on parent rows too.
+        // Drag-and-drop reordering — the replacement for List's native move
+        // handles (see the List's own doc comment above for why those no
+        // longer work here). Looks the dragged task up in allTasks (not
+        // just siblings) so dropping one from a *different* project's
+        // section onto this row also reassigns it to this row's project,
+        // not just silently failing to find it.
+        .draggable(task.id.uuidString)
+        .dropDestination(for: String.self) { items, _ in
+            guard let uuidString = items.first,
+                  let draggedID = UUID(uuidString: uuidString),
+                  let dragged = allTasks.first(where: { $0.id == draggedID })
+            else { return false }
+            if dragged.projectID != task.projectID {
+                dragged.projectID = task.projectID
+                dragged.updatedAt = Date()
+            }
+            Mutations.moveTask(dragged, beforeTask: task, in: siblings)
+            return true
+        }
+        // Without this, SectionHeaderRow's label flattens the row
+        // (including the checkbox button) into a single generic
+        // accessibility element whenever the row has children — this keeps
+        // the checkbox and title independently reachable for VoiceOver on
+        // parent rows too.
         .accessibilityElement(children: .contain)
         .contextMenu {
             if task.parentTaskID == nil {

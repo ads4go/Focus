@@ -143,6 +143,10 @@ private struct TagRow: View {
 
     private var label: some View {
         HStack {
+            // Matches ProjectListView's root-level project indent, so a
+            // tag's icon+text starts at the same horizontal position a
+            // project's does in the Projects left pane.
+            Spacer().frame(width: 18)
             Image(systemName: "tag")
                 .foregroundStyle(.pink)
             if node.tag.id == editingTagID {

@@ -31,16 +31,39 @@ enum Mutations {
         guard let newIndex = reordered.firstIndex(where: { $0 === dragged }) else { return }
         let before = newIndex > 0 ? reordered[newIndex - 1].sortOrder : nil
         let after = newIndex < reordered.count - 1 ? reordered[newIndex + 1].sortOrder : nil
-        switch (before, after) {
-        case let (b?, a?):
-            // Keep strict ordering when neighbors are adjacent.
-            let midpoint = b + (a - b) / 2
-            dragged.sortOrder = midpoint == b ? b + 1 : midpoint
-        case let (b?, nil): dragged.sortOrder = b + 1
-        case let (nil, a?): dragged.sortOrder = a - 1
-        default: break
-        }
+        dragged.sortOrder = sortOrder(after: before, before: after)
         dragged.updatedAt = Date()
+    }
+
+    /// Repositions `dragged` to sit immediately before `target` within
+    /// `siblings` (pre-sorted, sharing the same grouping) — the drag-and-
+    /// drop analogue of `reorder` above, driven by a drop rather than
+    /// List's native move handles. TaskListView draws its own selection
+    /// highlight instead of using List's native one (which can't be
+    /// recolored), and loses that move-handle machinery as a result — see
+    /// TaskRowView's .draggable/.dropDestination.
+    static func moveTask(_ dragged: TaskItem, beforeTask target: TaskItem, in siblings: [TaskItem]) {
+        guard dragged.id != target.id else { return }
+        let remaining = siblings.filter { $0.id != dragged.id }
+        guard let targetIndex = remaining.firstIndex(where: { $0.id == target.id }) else { return }
+        let before = targetIndex > 0 ? remaining[targetIndex - 1].sortOrder : nil
+        dragged.sortOrder = sortOrder(after: before, before: target.sortOrder)
+        dragged.updatedAt = Date()
+    }
+
+    /// A sortOrder placing a new/moved row strictly between `previous` and
+    /// `next` (either nil at a list's start/end) — the same fractional-
+    /// midpoint scheme `reorder` uses above, so inserting a row never
+    /// requires renumbering its neighbors.
+    static func sortOrder(after previous: Int?, before next: Int?) -> Int {
+        switch (previous, next) {
+        case let (b?, a?):
+            let midpoint = b + (a - b) / 2
+            return midpoint == b ? b + 1 : midpoint
+        case let (b?, nil): return b + 1
+        case let (nil, a?): return a - 1
+        case (nil, nil): return Int(Date().timeIntervalSince1970)
+        }
     }
 
 
