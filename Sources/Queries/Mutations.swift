@@ -51,6 +51,21 @@ enum Mutations {
         dragged.updatedAt = Date()
     }
 
+    /// The same drag-and-drop reposition as `moveTask` above, generalized
+    /// to any Orderable model keyed by UUID — used by ProjectListView and
+    /// TagListView's own rows, which dropped List's native selection
+    /// binding (for a custom pill-shaped highlight neither list's native
+    /// selection tint could render) and lost native drag-reorder along
+    /// with it, the same tradeoff TaskListView already made.
+    static func moveOrderable<T: Orderable>(_ dragged: T, beforeTarget target: T, in siblings: [T]) where T: Identifiable, T.ID == UUID {
+        guard dragged.id != target.id else { return }
+        let remaining = siblings.filter { $0.id != dragged.id }
+        guard let targetIndex = remaining.firstIndex(where: { $0.id == target.id }) else { return }
+        let before = targetIndex > 0 ? remaining[targetIndex - 1].sortOrder : nil
+        dragged.sortOrder = sortOrder(after: before, before: target.sortOrder)
+        dragged.updatedAt = Date()
+    }
+
     /// A sortOrder placing a new/moved row strictly between `previous` and
     /// `next` (either nil at a list's start/end) — the same fractional-
     /// midpoint scheme `reorder` uses above, so inserting a row never

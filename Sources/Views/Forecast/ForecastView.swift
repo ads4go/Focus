@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppKit
 
 /// The task-list portion of the Forecast perspective: header, day strip, and
 /// date-grouped tasks with project breadcrumbs. The mini month calendar
@@ -86,7 +87,11 @@ struct ForecastView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             strip
-            Divider()
+            // Half a native Divider()'s thickness — see TaskListView's
+            // identical header hairline for why.
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(height: 0.5)
             groupedList
         }
     }

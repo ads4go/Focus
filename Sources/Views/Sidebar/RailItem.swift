@@ -35,7 +35,7 @@ enum RailItem: String, CaseIterable, Hashable, Identifiable {
     /// uses the opposite convention).
     var tint: Color {
         switch self {
-        case .inbox: return .purple
+        case .inbox: return Color(red: 90 / 255, green: 90 / 255, blue: 128 / 255)
         case .forecast: return .red
         case .flagged: return .orange
         case .projects: return .blue

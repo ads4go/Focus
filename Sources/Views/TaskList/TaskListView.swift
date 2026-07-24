@@ -28,7 +28,7 @@ let sectionTaskIndent: CGFloat = sectionHeaderLabelIndent - 6
 /// highlight no matter what `.tint`/`.listRowBackground` is set to, so
 /// TaskListView's List no longer uses a `selection:` binding at all, and
 /// this is the replacement.
-let editingRowFillColor = Color(red: 40 / 255, green: 43 / 255, blue: 48 / 255)
+let editingRowFillColor = Color(red: 38 / 255, green: 38 / 255, blue: 38 / 255)
 let editingRowBorderColor = Color(red: 54 / 255, green: 81 / 255, blue: 111 / 255)
 
 /// Project/Tag/Due labels and chips in a selected row's interactive
@@ -54,7 +54,12 @@ struct SectionHeaderRow<Label: View>: View {
     @ViewBuilder let label: () -> Label
 
     var body: some View {
-        HStack(spacing: 10) {
+        // .top (not the default .center) so the chevron stays on the
+        // label's first line — matters once a selected project's label
+        // grows taller with its own Tag/Due chips underneath the name
+        // (see ProjectSectionHeader); for a single-line label like a tag
+        // section's own header, .top and .center look identical anyway.
+        HStack(alignment: .top, spacing: 10) {
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     isExpanded.toggle()
@@ -70,6 +75,285 @@ struct SectionHeaderRow<Label: View>: View {
 
             label()
         }
+    }
+}
+
+/// A project section's own selectable header — mirrors TaskRowView's
+/// selected-row look (blue fill when merely selected, dark fill + blue
+/// border when actively typing into a chip) and, when selected, shows the
+/// same kind of interactive Tag/Due Date chips a selected action does (see
+/// TaskRowView's interactiveMetadataRow), so a project's own tags/due date
+/// can be set right here instead of only from ProjectDetailView.
+private struct ProjectSectionHeader: View {
+    let project: Project
+    let nameBinding: Binding<String>
+    @Binding var isExpanded: Bool
+    let isSelected: Bool
+    let allTags: [Tag]
+    let allProjectTags: [ProjectTag]
+    let modelContext: ModelContext
+    var onSelect: () -> Void = {}
+
+    @State private var showingDueDatePicker = false
+    @State private var isEditingTag = false
+    @State private var tagFieldDraft = ""
+    /// Decoupled from `isSelected` on purpose — a first click only selects
+    /// this row; renaming the project needs a second, deliberate click on
+    /// the already-selected name, matching Finder (same pattern as
+    /// TaskRowView's own title and ProjectListView's project/folder rows).
+    @State private var isEditingName = false
+
+    private var isEditingAnything: Bool { isEditingTag || isEditingName }
+
+    var body: some View {
+        SectionHeaderRow(isExpanded: $isExpanded) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    nameView
+                    if isSelected {
+                        HStack(spacing: 6) {
+                            tagChips
+                            dueDateChip
+                        }
+                        .padding(.top, 2)
+                    }
+                }
+                // Without this, the label (and everything wrapping it,
+                // including this view's own selection .background below)
+                // only reports itself as wide as the name/chips need —
+                // narrower than a selected action row's, which fills the
+                // full row width via its own trailing Spacer (see
+                // TaskRowView's body). This Spacer does the same job here.
+                Spacer()
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(isSelected ? (isEditingAnything ? editingRowFillColor : editingRowBorderColor) : Color.clear)
+                .overlay {
+                    if isSelected && isEditingAnything {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(editingRowBorderColor, lineWidth: 1)
+                    }
+                }
+        }
+        .contentShape(Rectangle())
+        // simultaneousGesture (not .onTapGesture) so this still coexists
+        // with the chevron's own toggle Button and the caller's
+        // .draggable/.dropDestination — same reasoning as TaskRowView's own
+        // row-level tap.
+        .simultaneousGesture(TapGesture().onEnded(onSelect))
+        .onChange(of: isSelected) { _, stillSelected in
+            if !stillSelected {
+                isEditingTag = false
+                isEditingName = false
+            }
+        }
+    }
+
+    /// The project name itself only enters rename mode on a second,
+    /// deliberate click on an already-selected row's name (matching
+    /// Finder) — a first click just selects the row (via onSelect, same as
+    /// clicking anywhere else in it). Mirrors TaskRowView's own titleView.
+    @ViewBuilder
+    private var nameView: some View {
+        let text = EditableNameText(name: nameBinding, font: .headline, isSelected: isEditingName)
+        if isEditingName {
+            text
+        } else {
+            text
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        if isSelected { isEditingName = true }
+                    }
+                )
+        }
+    }
+
+    // MARK: - Tags
+
+    private var assignedTagIDs: Set<UUID> {
+        Set(allProjectTags.filter { $0.projectID == project.id }.map(\.tagID))
+    }
+    private var assignedTags: [Tag] { allTags.filter { assignedTagIDs.contains($0.id) } }
+    private var unassignedTags: [Tag] { allTags.filter { !assignedTagIDs.contains($0.id) } }
+
+    @ViewBuilder
+    private var tagChips: some View {
+        ForEach(assignedTags) { tag in
+            Button {
+                Mutations.removeTag(tag, fromProject: project, in: modelContext)
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "tag.fill")
+                        .font(.system(size: 9))
+                    Text(tag.name)
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                }
+                .font(.caption)
+                .foregroundStyle(selectedChipTextColor)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(selectedChipBackground, in: .capsule)
+            }
+            .buttonStyle(.plain)
+        }
+
+        addTagChip
+    }
+
+    private var addTagChip: some View {
+        HStack(spacing: 3) {
+            if isEditingTag {
+                Image(systemName: "tag")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                EditableNameText(
+                    name: $tagFieldDraft,
+                    font: .caption,
+                    isSelected: true,
+                    placeholder: "Tag",
+                    onCommit: commitTagField
+                )
+                .frame(width: 50)
+            } else {
+                Button {
+                    tagFieldDraft = ""
+                    isEditingTag = true
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: assignedTags.isEmpty ? "tag" : "plus")
+                        if assignedTags.isEmpty {
+                            Text("Tag")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(assignedTags.isEmpty ? selectedMetadataLabelColor : selectedChipTextColor)
+                    .padding(.horizontal, assignedTags.isEmpty ? 0 : 6)
+                    .padding(.vertical, assignedTags.isEmpty ? 0 : 2)
+                    .background(assignedTags.isEmpty ? Color.clear : selectedChipBackground, in: .capsule)
+                }
+                .buttonStyle(.plain)
+                .frame(width: assignedTags.isEmpty ? 40 : nil)
+            }
+
+            if !unassignedTags.isEmpty {
+                Menu {
+                    ForEach(unassignedTags) { tag in
+                        Button(tag.name) {
+                            Mutations.addTag(tag, toProject: project, in: modelContext)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(selectedMetadataLabelColor)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .tint(selectedMetadataLabelColor)
+                .fixedSize()
+            }
+        }
+    }
+
+    private func commitTagField() {
+        isEditingTag = false
+        let trimmed = tagFieldDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let matchedTag = allTags.first { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }
+        let tag = matchedTag ?? {
+            let newTag = Tag(name: trimmed)
+            modelContext.insert(newTag)
+            return newTag
+        }()
+        Mutations.addTag(tag, toProject: project, in: modelContext)
+    }
+
+    // MARK: - Due date
+
+    @ViewBuilder
+    private var dueDateChip: some View {
+        Group {
+            if let due = project.dueDate {
+                HStack(spacing: 3) {
+                    Button {
+                        showingDueDatePicker = true
+                    } label: {
+                        Label(due.formatted(.dateTime.month(.abbreviated).day()), systemImage: "calendar")
+                            .font(.caption)
+                            .foregroundStyle(dueDateTint(due, dimColor: selectedMetadataLabelColor))
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        project.dueDate = nil
+                        project.updatedAt = Date()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(dueDateTint(due, dimColor: selectedMetadataLabelColor))
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                Button {
+                    showingDueDatePicker = true
+                } label: {
+                    Label("Due", systemImage: "calendar.badge.plus")
+                        .font(.caption)
+                        .foregroundStyle(selectedMetadataLabelColor)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .popover(isPresented: $showingDueDatePicker) {
+            dueDatePopover
+        }
+    }
+
+    private var dueDatePopover: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DatePicker(
+                "Due Date",
+                selection: Binding(
+                    get: { project.dueDate ?? Date() },
+                    set: { project.dueDate = $0; project.updatedAt = Date() }
+                ),
+                displayedComponents: [.date]
+            )
+            .datePickerStyle(.graphical)
+            .labelsHidden()
+            if project.dueDate != nil {
+                Button("Clear") {
+                    project.dueDate = nil
+                    project.updatedAt = Date()
+                    showingDueDatePicker = false
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
+                .font(.callout)
+            }
+        }
+        .padding()
+        .frame(minWidth: 260)
+    }
+
+    /// Matches TaskRowView's own dueDateTint (overdue red, due-soon orange,
+    /// otherwise the given dim color) — projects don't have a `completed`
+    /// flag exactly, but `isCompleted` is the equivalent.
+    private func dueDateTint(_ dueDate: Date, dimColor: Color) -> Color {
+        guard !project.isCompleted else { return dimColor }
+        let calendar = Calendar.current
+        if dueDate < Date() { return .red }
+        if let tomorrowEnd = calendar.date(byAdding: .day, value: 2, to: calendar.startOfDay(for: Date())),
+           dueDate < tomorrowEnd {
+            return .orange
+        }
+        return dimColor
     }
 }
 
@@ -138,6 +422,26 @@ private struct CursorTextField: NSViewRepresentable {
         // title immediately, with no click required.
         DispatchQueue.main.async {
             field.window?.makeFirstResponder(field)
+            // makeFirstResponder alone triggers NSTextField's own default
+            // becomeFirstResponder, which selects all text — fine for a
+            // freshly created (empty) title, but for renaming existing text
+            // (a project/folder/task name entering edit mode via a second
+            // click) that reads as "about to overwrite everything" rather
+            // than "ready to edit". Placing the cursor at the very start
+            // instead matches the latter.
+            //
+            // A click-position-aware version was tried (reusing the
+            // SwiftUI tap's local coordinates against the field editor)
+            // but consistently landed at the end instead — the tapped
+            // label and the field editor's own coordinate spaces don't
+            // actually line up (text-container insets, possible Y-axis
+            // flip between SwiftUI's top-left convention and AppKit's
+            // default bottom-left one, etc.), so that point isn't
+            // meaningful to characterIndex(for:) here. Getting real
+            // click-position accuracy would need capturing an actual
+            // AppKit mouseDown (in window/screen coordinates) instead of
+            // reusing a SwiftUI gesture's local-space point.
+            field.currentEditor()?.selectedRange = NSRange(location: 0, length: 0)
         }
         return field
     }
@@ -237,9 +541,22 @@ struct TaskListView: View {
     private var allProjects: [Project]
     @Query(filter: #Predicate<Tag> { $0.deletedAt == nil }, sort: \Tag.name)
     private var allTags: [Tag]
+    /// Only needed so a selected project's own tag chips (see
+    /// ProjectMetadataRow) can show/edit its assignments the same way
+    /// TaskRowView's tagChips does for a selected task.
+    @Query(filter: #Predicate<ProjectTag> { $0.deletedAt == nil })
+    private var allProjectTags: [ProjectTag]
 
     @State private var subtaskParent: TaskItem?
     @State private var pinnedIDs: Set<UUID> = []
+    /// The .projects perspective's own selection, separate from
+    /// selectedTaskID — a project section's header row is selectable the
+    /// same way a task row is (see the SectionHeaderRow wrapper below), and
+    /// the two are mutually exclusive: selecting one clears the other (see
+    /// the onChange below and the header's own tap handler). Also lets
+    /// createProjectsTask's "+" target a specific project directly instead
+    /// of always falling back to the last section.
+    @State private var selectedProjectID: UUID?
     /// Collapsed-state per project, keyed by Project.id — absent means
     /// expanded (mirrors ForecastView's collapsedSectionIDs).
     @State private var collapsedProjectIDs: Set<UUID> = []
@@ -359,7 +676,7 @@ struct TaskListView: View {
     private var accentColor: Color {
         if let accentColorOverride { return accentColorOverride }
         switch perspective {
-        case .inbox: return .purple
+        case .inbox: return Color(red: 90 / 255, green: 90 / 255, blue: 128 / 255)
         case .flagged: return .orange
         case .projects: return .blue
         case .tags: return .pink
@@ -438,17 +755,26 @@ struct TaskListView: View {
     }
 
     /// The Projects pane's own "+". Unlike createInboxTask's sibling-insert,
-    /// an existing selection here always adds a *subaction* nested under it
-    /// (see subaction.png) — this pane mixes several projects' actions
-    /// together, so "insert after the selected sibling" wouldn't have one
-    /// obvious project to land in the way Inbox's flat list does. With
-    /// nothing selected, it falls back to that same "lands at the bottom"
-    /// idea applied to the last project section shown, appended after its
-    /// own last top-level action.
+    /// an existing task selection here always adds a *subaction* nested
+    /// under it (see subaction.png) — this pane mixes several projects'
+    /// actions together, so "insert after the selected sibling" wouldn't
+    /// have one obvious project to land in the way Inbox's flat list does.
+    /// A selected *project* (its section header row, rather than one of its
+    /// actions — see selectedProjectID) instead adds a new top-level action
+    /// straight to that project. With nothing selected at all, it falls
+    /// back to that same "lands at the bottom" idea applied to the last
+    /// project section shown, appended after its own last top-level action.
     private func createProjectsTask() {
         let newTask: TaskItem
         if let selectedID = selectedTaskID, let parent = allTasks.first(where: { $0.id == selectedID }) {
             newTask = TaskItem(title: "", projectID: parent.projectID, parentTaskID: parent.id)
+        } else if let projectID = selectedProjectID, let section = projectSections.first(where: { $0.id == projectID }) {
+            let lastSortOrder = section.nodes.map(\.task.sortOrder).max()
+            newTask = TaskItem(
+                title: "",
+                projectID: projectID,
+                sortOrder: Mutations.sortOrder(after: lastSortOrder, before: nil)
+            )
         } else if let lastSection = projectSections.last {
             let lastSortOrder = lastSection.nodes.map(\.task.sortOrder).max()
             newTask = TaskItem(
@@ -463,13 +789,15 @@ struct TaskListView: View {
         selectedTaskID = newTask.id
     }
 
-    /// headerIndentCancel: only meaningful for a top-level row (the only
-    /// depth this helper is ever called at — deeper nesting recurses inside
-    /// TaskRow.body itself, not through here). Passed through so that if
-    /// this particular node later gains a subaction and grows its own
-    /// dropdown chevron, TaskRow can cancel out exactly this row's own
-    /// section indent — see TaskRow's headerIndentCancel doc comment.
-    private func taskRow(for node: TaskNode, siblings: [TaskItem], headerIndentCancel: CGFloat = 0) -> some View {
+    /// leadingIndent: how far this top-level row's own content should sit
+    /// from the left edge (0 for Inbox's flat, ungrouped list; sectionTaskIndent
+    /// under a project/tag section header or in Flagged). Passed to TaskRow
+    /// as an explicit value baked into TaskRowView's own leading padding
+    /// (see its doc comment) instead of external `.padding(.leading:)`, so
+    /// every row's selection background is the same full width regardless
+    /// of how indented its content is — project header, top-level action,
+    /// or (via TaskRow's own recursion) subaction all end up the same.
+    private func taskRow(for node: TaskNode, siblings: [TaskItem], leadingIndent: CGFloat = 0) -> some View {
         TaskRow(
             node: node,
             selectedTaskID: $selectedTaskID,
@@ -484,7 +812,7 @@ struct TaskListView: View {
             pinnedIDs: $pinnedIDs,
             onPin: { pinnedIDs.insert($0) },
             onAddSubtask: { subtaskParent = $0 },
-            headerIndentCancel: headerIndentCancel
+            leadingIndent: leadingIndent
         )
         .listRowSeparator(.hidden)
     }
@@ -562,7 +890,12 @@ struct TaskListView: View {
                 .padding(.bottom, 4)
             }
 
-            Divider()
+            // A plain Divider() renders at its native ~1pt thickness (2px on
+            // a Retina display); this hairline is tuned to half that so the
+            // line under the header reads as a single device pixel instead.
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(height: 0.5)
 
             // `List(data, children:)` — the tree convenience initializer —
             // doesn't support `.onMove`, and `.dropDestination` inside a List
@@ -594,9 +927,19 @@ struct TaskListView: View {
                     // happens to be selected.
                     ForEach(Array(projectSections.enumerated()), id: \.element.id) { index, section in
                         let expanded = isProjectExpandedBinding(for: section.id)
-                        SectionHeaderRow(isExpanded: expanded) {
-                            EditableNameText(name: nameBinding(for: section.project), font: .headline)
-                        }
+                        ProjectSectionHeader(
+                            project: section.project,
+                            nameBinding: nameBinding(for: section.project),
+                            isExpanded: expanded,
+                            isSelected: selectedProjectID == section.project.id,
+                            allTags: allTags,
+                            allProjectTags: allProjectTags,
+                            modelContext: modelContext,
+                            onSelect: {
+                                selectedProjectID = section.project.id
+                                selectedTaskID = nil
+                            }
+                        )
                         .listRowSeparator(.hidden)
                         // Dropping directly on the section's own header —
                         // not just on one of its rows — reassigns to this
@@ -617,10 +960,9 @@ struct TaskListView: View {
                         if expanded.wrappedValue {
                             let siblings = section.nodes.map(\.task)
                             ForEach(Array(section.nodes.enumerated()), id: \.element.id) { rowIndex, node in
-                                taskRow(for: node, siblings: siblings, headerIndentCancel: sectionTaskIndent)
+                                taskRow(for: node, siblings: siblings, leadingIndent: sectionTaskIndent)
                                     .padding(.top, rowIndex == 0 ? 6 : 0)
                             }
-                            .padding(.leading, sectionTaskIndent)
                         }
                         if index < projectSections.count - 1 {
                             Divider()
@@ -642,10 +984,9 @@ struct TaskListView: View {
                         .listRowSeparator(.hidden)
                         if expanded.wrappedValue {
                             ForEach(Array(section.nodes.enumerated()), id: \.element.id) { rowIndex, node in
-                                taskRow(for: node, siblings: [], headerIndentCancel: sectionTaskIndent)
+                                taskRow(for: node, siblings: [], leadingIndent: sectionTaskIndent)
                                     .padding(.top, rowIndex == 0 ? 6 : 0)
                             }
-                            .padding(.leading, sectionTaskIndent)
                         }
                         if index < tagSections.count - 1 {
                             Divider()
@@ -659,12 +1000,29 @@ struct TaskListView: View {
                     // a header above it.
                     let siblings = nodes.map(\.task)
                     ForEach(nodes) { node in
-                        taskRow(for: node, siblings: siblings, headerIndentCancel: isFlaggedPerspective ? sectionTaskIndent : 0)
+                        taskRow(for: node, siblings: siblings, leadingIndent: isFlaggedPerspective ? sectionTaskIndent : 0)
                     }
-                    .padding(.leading, isFlaggedPerspective ? sectionTaskIndent : 0)
                 }
             }
             .listStyle(.inset)
+            // .listStyle(.inset) reserves its own fixed horizontal margin
+            // on macOS — leading padding here used to cancel that back out
+            // (-12: the same compensation ProjectListView/TagListView
+            // apply, plus an extra -6 since every row here (TaskRowView)
+            // also bakes in its own 6pt leading padding for its selection
+            // background), but that negative padding lays this List's real
+            // backing NSTableView out that much further left than this
+            // pane's nominal bounds — and neither .clipped() (this one or
+            // ContentView's ancestor one) actually shrinks the table
+            // view's real NSView frame, only its rendering — so the
+            // oversized real frame was swallowing hover/drag for the
+            // ResizableDivider immediately to its left (between this pane
+            // and ProjectListView). Dropped to 0: trades away that margin
+            // compensation (expect some extra blank space along this
+            // List's left edge) for the divider actually working again.
+            .padding(.leading, 0)
+            .padding(.trailing, -10)
+            .clipped()
             .overlay {
                 if nodes.isEmpty {
                     ContentUnavailableView("No Actions", systemImage: "checkmark.circle")
@@ -672,6 +1030,7 @@ struct TaskListView: View {
             }
             .onChange(of: selectedTaskID) { _, newValue in
                 guard let newValue else { return }
+                selectedProjectID = nil
                 // Deferred a tick, and NOT animated — selecting a row also
                 // expands it into edit mode (title field + Project/Tags/Due
                 // chips) in this same update, so the row's geometry is
@@ -731,22 +1090,16 @@ private struct TaskRow: View {
     @Binding var pinnedIDs: Set<UUID>
     let onPin: (UUID) -> Void
     let onAddSubtask: (TaskItem) -> Void
-    /// How much of this row's own ambient leading indent (the section-level
-    /// padding its caller applied — see TaskListView's three taskRow(for:)
-    /// call sites) to cancel if this node turns out to have children. A
-    /// root-level action with no subactions sits flush with its siblings at
-    /// that ambient indent; the moment it gains one, it becomes a
-    /// SectionHeaderRow itself and picks up a chevron's own width — without
-    /// correction that pushes both the new chevron AND this row's checkbox
-    /// an extra sectionTaskIndent+24pt to the right. Canceling exactly this
-    /// row's own ambient indent brings the new chevron back flush with a
-    /// project/tag section's own chevron; the additional fixed -6 below
-    /// (on rowContent specifically) then cancels TaskRowView's own internal
-    /// leading padding so the checkbox lands back in line with sibling rows
-    /// that never grew a chevron. Left at its default (0) for every
-    /// recursively-rendered child, which isn't asked to align with
-    /// anything at this fixed depth.
-    var headerIndentCancel: CGFloat = 0
+    /// How far this row's own content sits from the left edge, baked into
+    /// TaskRowView's own leading padding (see its doc comment) rather than
+    /// external `.padding(.leading:)` — that's what keeps this row's
+    /// selection background the same full width a project header's or any
+    /// other action's is, regardless of nesting depth. TaskListView's three
+    /// taskRow(for:) call sites pass sectionTaskIndent (or 0) for a
+    /// top-level row; recursing into a child below passes this same value
+    /// plus subactionIndent, so depth keeps accumulating exactly as it did
+    /// under the old external-padding scheme.
+    var leadingIndent: CGFloat = 0
 
     /// Expanded by default, matching Projects/Tags/Forecast's dropdown
     /// sections elsewhere in this file.
@@ -762,12 +1115,18 @@ private struct TaskRow: View {
             // flattening the same way a bare ForEach is, so the header and
             // each child below still become independently selectable rows.
             Group {
-                SectionHeaderRow(isExpanded: $isExpanded) {
-                    rowContent
-                        .padding(.leading, headerIndentCancel > 0 ? -6 : 0)
-                }
-                .padding(.leading, -headerIndentCancel)
-                .listRowSeparator(.hidden)
+                // The chevron renders as part of rowContent itself (see
+                // TaskRowView's hasChildren) rather than this row being
+                // wrapped as a separate SectionHeaderRow's label — that kept
+                // the chevron outside rowContent's own selection background
+                // entirely. TaskRowView's chevron+checkbox pairing reserves
+                // the same 24pt (14 chevron + 10 spacing) a SectionHeaderRow
+                // would have, so subtracting it back out of leadingIndent
+                // here (it can go negative, e.g. for a top-level row) still
+                // lands this row's checkbox in line with sibling rows that
+                // never grew a chevron.
+                rowContent(leadingIndent: leadingIndent - 24, hasChildren: true)
+                    .listRowSeparator(.hidden)
                 if isExpanded {
                     let childSiblings = children.map(\.task)
                     ForEach(children) { child in
@@ -784,15 +1143,15 @@ private struct TaskRow: View {
                             showsProjectPicker: showsProjectPicker,
                             pinnedIDs: $pinnedIDs,
                             onPin: onPin,
-                            onAddSubtask: onAddSubtask
+                            onAddSubtask: onAddSubtask,
+                            leadingIndent: leadingIndent + subactionIndent
                         )
                         .listRowSeparator(.hidden)
                     }
-                    .padding(.leading, subactionIndent)
                 }
             }
         } else {
-            rowContent
+            rowContent(leadingIndent: leadingIndent)
         }
     }
 
@@ -805,7 +1164,7 @@ private struct TaskRow: View {
         Perspectives.tags(for: node.task, allTags: allTags, allTaskTags: allTaskTags).map(\.name)
     }
 
-    private var rowContent: some View {
+    private func rowContent(leadingIndent: CGFloat, hasChildren: Bool = false) -> some View {
         let task = node.task
         return TaskRowView(
             task: task,
@@ -821,7 +1180,11 @@ private struct TaskRow: View {
             },
             onWillLeaveInbox: { pinnedIDs.insert(task.id) },
             showsProjectPicker: showsProjectPicker,
-            onSelect: { selectedTaskID = task.id }
+            onSelect: { selectedTaskID = task.id },
+            leadingIndent: leadingIndent,
+            hasChildren: hasChildren,
+            isExpanded: isExpanded,
+            onToggleExpanded: { withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() } }
         )
         // Drag-and-drop reordering — the replacement for List's native move
         // handles (see the List's own doc comment above for why those no

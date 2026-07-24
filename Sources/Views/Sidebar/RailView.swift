@@ -23,8 +23,15 @@ struct RailView: View {
     @Environment(\.controlActiveState) private var controlActiveState
 
     /// Matches OmniFocus's rail container color, picked directly from a
-    /// screenshot of it: rgb(40, 40, 40).
-    private static let containerColor = Color(red: 40 / 255, green: 40 / 255, blue: 40 / 255)
+    /// screenshot of it: rgb(40, 40, 40) — but only while the window is
+    /// inactive (some other app is frontmost). While Focus's window is
+    /// actually key, the rail should read as a darker rgb(34, 34, 34)
+    /// instead, same as the glassy edge above only lighting up while key.
+    private var containerColor: Color {
+        controlActiveState == .key
+            ? Color(red: 34 / 255, green: 34 / 255, blue: 34 / 255)
+            : Color(red: 40 / 255, green: 40 / 255, blue: 40 / 255)
+    }
     private static let containerShape = RoundedRectangle(cornerRadius: 18, style: .continuous)
 
     var body: some View {
@@ -41,25 +48,50 @@ struct RailView: View {
             .padding(.bottom, 10)
         }
         .scrollIndicators(.never)
-        .frame(width: 80)
+        .frame(width: 82)
         // A distinct gray card floating with a margin on all sides
         // (below), not chrome bleeding edge-to-edge.
         .clipShape(Self.containerShape)
-        .background(Self.containerColor, in: Self.containerShape)
+        .background(containerColor, in: Self.containerShape)
         .overlay {
             if controlActiveState == .key {
-                // Subtler than before, and lit from the left rather than
-                // directly overhead — matches OmniFocus's glassy edge,
-                // which is brighter on its left side than its right.
-                Self.containerShape
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [.white.opacity(0.2), .white.opacity(0.04)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        ),
-                        lineWidth: 1
+                // Two localized corner hotspots (top-left, bottom-right)
+                // over a faint base ring, instead of one straight diagonal
+                // LinearGradient — this rail is tall and narrow, and a
+                // corner-to-corner LinearGradient's unit-square axis
+                // stretches to match that aspect ratio, so it comes out
+                // nearly vertical in practice: both top corners end up
+                // close to the bright end and the whole top edge reads as
+                // too bright. Anchoring a RadialGradient at .topLeading /
+                // .bottomTrailing instead keeps each highlight pinned to
+                // its actual corner (a UnitPoint corner always maps to the
+                // real pixel corner, whatever the aspect ratio) and lets
+                // the top-right/bottom-left corners fall back to the dim
+                // base ring untouched, matching OmniFocus's glassy edge.
+                ZStack {
+                    Self.containerShape
+                        .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
+                    RadialGradient(
+                        colors: [.white.opacity(0.35), .clear],
+                        center: .topLeading,
+                        startRadius: 0,
+                        endRadius: 50
                     )
+                    .mask(Self.containerShape.stroke(lineWidth: 1))
+                    RadialGradient(
+                        colors: [.white.opacity(0.2), .clear],
+                        center: .bottomTrailing,
+                        startRadius: 0,
+                        endRadius: 50
+                    )
+                    .mask(Self.containerShape.stroke(lineWidth: 1))
+                }
+                // Purely decorative — .mask() above only affects rendering,
+                // not hit-testing, so without this the two RadialGradients'
+                // full unclipped rectangles (they just *look* ring-shaped)
+                // would sit on top of every tile underneath and swallow
+                // clicks, which is what broke back-to-back tile selection.
+                .allowsHitTesting(false)
             }
         }
         .padding(.leading, 8)
@@ -73,6 +105,14 @@ private struct RailTile: View {
     let isSelected: Bool
     let badgeCount: Int?
     let action: () -> Void
+
+    @Environment(\.controlActiveState) private var controlActiveState
+
+    private var selectedFillColor: Color {
+        controlActiveState == .key
+            ? Color(red: 50 / 255, green: 50 / 255, blue: 51 / 255)
+            : Color(red: 55 / 255, green: 55 / 255, blue: 56 / 255)
+    }
 
     var body: some View {
         Button(action: action) {
@@ -105,7 +145,7 @@ private struct RailTile: View {
             .padding(.top, 17)
             .padding(.bottom, 6)
             .background(
-                isSelected ? Color.secondary.opacity(0.25) : Color.clear,
+                isSelected ? selectedFillColor : Color.clear,
                 in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
             .padding(.horizontal, 1)

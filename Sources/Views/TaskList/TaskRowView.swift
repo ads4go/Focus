@@ -35,6 +35,32 @@ struct TaskRowView: View {
     /// becoming selected, now that selection isn't List's native binding
     /// (see TaskListView's List doc comment).
     var onSelect: () -> Void = {}
+    /// How far to inset this row's own content (checkbox onward) from its
+    /// left edge — folded into this view's own leading padding (see body)
+    /// rather than applied as external padding by the caller. That
+    /// distinction is what keeps every row's selection background the same
+    /// width regardless of nesting: external padding shrinks the space List
+    /// proposes to this view before it ever sees it, so its own
+    /// full-width-filling background would end up narrower for a more
+    /// deeply-indented row; internal padding only pushes the *content*
+    /// rightward, leaving this view's (and its background's) overall
+    /// reported width untouched. See TaskListView's TaskRow, which computes
+    /// this per row (accumulating subactionIndent per nesting level) and
+    /// passes it in instead of wrapping rows in `.padding(.leading:)`.
+    var leadingIndent: CGFloat = 0
+    /// Whether this task has subactions — when true, a disclosure chevron
+    /// renders as part of THIS row's own content (see body), sharing its
+    /// background/selection highlight and layout, rather than this row
+    /// being wrapped as a separate SectionHeaderRow's label the way it used
+    /// to be. That older approach left the chevron outside the selection
+    /// fill entirely (it belonged to the wrapping SectionHeaderRow, not
+    /// this view) and, being a second, differently-sized sibling row
+    /// stacked via an outer HStack, could report a taller-than-expected
+    /// combined height — both fixed by folding the chevron into this same
+    /// view instead.
+    var hasChildren: Bool = false
+    var isExpanded: Bool = false
+    var onToggleExpanded: () -> Void = {}
 
     @Environment(\.modelContext) private var modelContext
     @State private var showingDueDatePicker = false
@@ -66,13 +92,30 @@ struct TaskRowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Button(action: onToggleComplete) {
-                Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(checkboxTint)
-                    .frame(width: Self.checkboxWidth)
+            // Nested at spacing 10 (matching SectionHeaderRow's own
+            // chevron+label spacing exactly) so a childless row's checkbox
+            // and a has-children row's checkbox land at the identical
+            // position — the inner HStack just has one fewer element when
+            // there's no chevron to show, rather than changing any offset.
+            HStack(spacing: 10) {
+                if hasChildren {
+                    Button(action: onToggleExpanded) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.gray)
+                            .frame(width: 14)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button(action: onToggleComplete) {
+                    Image(systemName: task.completed ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(checkboxTint)
+                        .frame(width: Self.checkboxWidth)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 2) {
                 titleView
@@ -101,7 +144,8 @@ struct TaskRowView: View {
             }
         }
         .padding(.vertical, 4)
-        .padding(.horizontal, 6)
+        .padding(.leading, 6 + leadingIndent)
+        .padding(.trailing, 6)
         .background {
             // OmniFocus draws selection two ways, hand-drawn here since
             // List's native selection tint can't be recolored to match
@@ -109,11 +153,11 @@ struct TaskRowView: View {
             // fill (selected.png), while actually typing into one of this
             // row's own text fields (title, project, tag) switches to a
             // dark charcoal fill with a blue border instead (omni.png).
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(isSelected ? (isEditingAnything ? editingRowFillColor : editingRowBorderColor) : Color.clear)
                 .overlay {
                     if isSelected && isEditingAnything {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .strokeBorder(editingRowBorderColor, lineWidth: 1)
                     }
                 }
@@ -175,7 +219,9 @@ struct TaskRowView: View {
                 .contentShape(Rectangle())
                 .simultaneousGesture(
                     TapGesture().onEnded {
-                        if isSelected { isEditingTitle = true }
+                        if isSelected {
+                            isEditingTitle = true
+                        }
                     }
                 )
         }

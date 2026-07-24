@@ -60,6 +60,12 @@ struct ContentView: View {
     /// selected on the Tags tab.
     @State private var selectedFlaggedTagIDs: Set<UUID> = []
     @State private var selectedTaskID: UUID?
+    /// Whether the Projects left pane (ProjectListView) is the pane the
+    /// user last interacted with, as opposed to the middle task list or a
+    /// rail button — drives its selected row's pill back to gray when it
+    /// isn't (see ProjectListView.isPaneFocused's own doc comment for why
+    /// this lives here rather than as local @FocusState there).
+    @State private var isProjectsListFocused = true
     @State private var forecastSelectedDate: Date?
     @State private var isShowingQuickEntry = false
     @State private var pushDebounceTask: Task<Void, Never>?
@@ -81,20 +87,20 @@ struct ContentView: View {
     /// single source of truth, also used by leftAndMiddleSection and the
     /// two ResizableDividers so the numbers can't drift apart again.
     private var minWindowWidth: CGFloat {
-        let railFootprint: CGFloat = 96 // fixed 80pt rail + 8pt margin on each side
+        let railFootprint: CGFloat = 98 // fixed 82pt rail + 8pt margin on each side
         let dividerWidth: CGFloat = 8
 
         var width = railFootprint
         switch rail {
         case .projects, .review, .tags, .forecast, .flagged:
             width += collapsedRails.contains(rail)
-                ? Self.middlePaneMinWidth
+                ? Self.collapsedGapWidth + Self.middlePaneMinWidth
                 : Self.leftPaneMinWidth + dividerWidth + Self.middlePaneMinWidth
         case .inbox:
             // Inbox has no middle pane of its own, but its single pane
             // shows the same kind of full task list the middle pane does
             // everywhere else — matches that width, not the left pane's.
-            width += Self.middlePaneMinWidth
+            width += Self.collapsedGapWidth + Self.middlePaneMinWidth
         }
         if !isDetailPaneCollapsed {
             width += dividerWidth + Self.rightPaneMinWidth
@@ -122,7 +128,13 @@ struct ContentView: View {
     /// slightly from the raw pixel measurement (~295pt).
     private static let rightPaneMinWidth: CGFloat = 285
     private static let dividerWidth: CGFloat = 8
-    private static let railFootprint: CGFloat = 96
+    private static let railFootprint: CGFloat = 98
+    /// Gap left between the rail and the middle pane when a rail's left
+    /// pane is collapsed — otherwise the middle pane's content sits flush
+    /// against the rail with no breathing room at all (the ResizableDivider
+    /// that normally provides that separation is removed entirely in the
+    /// collapsed state, not just narrowed).
+    private static let collapsedGapWidth: CGFloat = 5
 
     /// How much leftAndMiddleSection needs right now, for the current rail
     /// and collapse state — reserved against the *actual* current
@@ -133,10 +145,10 @@ struct ContentView: View {
         switch rail {
         case .projects, .review, .tags, .forecast, .flagged:
             return collapsedRails.contains(rail)
-                ? Self.middlePaneMinWidth
+                ? Self.collapsedGapWidth + Self.middlePaneMinWidth
                 : leftPaneWidth + Self.dividerWidth + Self.middlePaneMinWidth
         case .inbox:
-            return Self.leftPaneMinWidth
+            return Self.collapsedGapWidth + Self.leftPaneMinWidth
         }
     }
 
@@ -259,6 +271,15 @@ struct ContentView: View {
             guard newPhase == .active else { return }
             Task { await SyncEngine.syncNow(context: modelContext) }
         }
+        // A task actually being selected (never nil — see the Projects
+        // case in taskTier, which only ever sets selectedTaskID to nil
+        // itself) means the click landed in the middle pane's own task
+        // list, not in ProjectListView — send its selected row back to
+        // gray (see isProjectsListFocused's own doc comment).
+        .onChange(of: selectedTaskID) { _, newTaskID in
+            guard newTaskID != nil, rail == .projects else { return }
+            isProjectsListFocused = false
+        }
         .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave, object: modelContext)) { _ in
             schedulePush()
         }
@@ -285,6 +306,7 @@ struct ContentView: View {
             selectedTagIDs = []
             selectedFlaggedTagIDs = []
             selectedTaskID = nil
+            isProjectsListFocused = false
             return
         }
         if item != .inbox {
@@ -310,9 +332,10 @@ struct ContentView: View {
     private var taskTier: some View {
         switch rail {
         case .projects:
-            ProjectListView { ids in
+            ProjectListView(isPaneFocused: isProjectsListFocused) { ids in
                 selectedProjectIDs = ids
                 selectedTaskID = nil
+                isProjectsListFocused = true
             }
         case .review:
             // Single-select paging by design (see ReviewView) — wraps its
@@ -390,6 +413,8 @@ struct ContentView: View {
                         minWidth: Self.leftPaneMinWidth,
                         maxWidth: maxLeftPaneWidth(totalWidth: totalWidth)
                     )
+                } else {
+                    Color.clear.frame(width: Self.collapsedGapWidth)
                 }
                 detailLeftPane
                     .frame(minWidth: Self.middlePaneMinWidth, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -398,10 +423,16 @@ struct ContentView: View {
         case .inbox:
             // No middle pane of its own here, but this single pane shows
             // a full task list like the middle pane does everywhere else
-            // — matches that width, not the (narrower) left pane's.
-            taskTier
-                .frame(minWidth: Self.middlePaneMinWidth, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .clipped()
+            // — matches that width, not the (narrower) left pane's. Same
+            // rail-to-content gap as the collapsed left pane on every
+            // other tab (collapsedGapWidth) since Inbox has no left pane
+            // (or divider) of its own to provide that breathing room.
+            HStack(alignment: .top, spacing: 0) {
+                Color.clear.frame(width: Self.collapsedGapWidth)
+                taskTier
+                    .frame(minWidth: Self.middlePaneMinWidth, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .clipped()
+            }
         }
     }
 
