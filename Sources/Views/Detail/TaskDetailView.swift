@@ -23,8 +23,9 @@ struct TaskDetailView: View {
 
                 statusSection
                 projectSection
-                tagsSection
-                OptionalDateField(label: "Defer", date: deferDateOptionalBinding, touch: touch)
+                // tagsSection hidden — uncomment to restore
+                // Defer date hidden — uncomment to restore
+                // OptionalDateField(label: "Defer", date: deferDateOptionalBinding, touch: touch)
                 OptionalDateField(label: "Due", date: dueDateOptionalBinding, touch: touch)
                 notesSection
 
@@ -68,14 +69,15 @@ struct TaskDetailView: View {
                 .labelsHidden()
                 .frame(maxWidth: 160)
 
-                Button {
-                    task.flagged.toggle()
-                    touch()
-                } label: {
-                    Image(systemName: task.flagged ? "flag.fill" : "flag")
-                }
-                .buttonStyle(.bordered)
-                .tint(task.flagged ? .orange : .secondary)
+                // Flag button hidden — uncomment to restore
+                // Button {
+                //     task.flagged.toggle()
+                //     touch()
+                // } label: {
+                //     Image(systemName: task.flagged ? "flag.fill" : "flag")
+                // }
+                // .buttonStyle(.bordered)
+                // .tint(task.flagged ? .orange : .secondary)
             }
         }
     }
@@ -135,12 +137,13 @@ struct TaskDetailView: View {
         )
     }
 
-    private var deferDateOptionalBinding: Binding<Date?> {
-        Binding(
-            get: { task.deferDate },
-            set: { task.deferDate = $0; touch() }
-        )
-    }
+    // Defer date binding hidden — uncomment to restore
+    // private var deferDateOptionalBinding: Binding<Date?> {
+    //     Binding(
+    //         get: { task.deferDate },
+    //         set: { task.deferDate = $0; touch() }
+    //     )
+    // }
 
     private var dueDateOptionalBinding: Binding<Date?> {
         Binding(

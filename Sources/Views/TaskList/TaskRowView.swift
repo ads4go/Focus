@@ -61,6 +61,9 @@ struct TaskRowView: View {
     var hasChildren: Bool = false
     var isExpanded: Bool = false
     var onToggleExpanded: () -> Void = {}
+    /// When false (left pane has focus), the selected pill renders gray
+    /// instead of blue — matching OmniFocus's inactive-pane selection look.
+    var isPaneFocused: Bool = true
 
     @Environment(\.modelContext) private var modelContext
     @State private var showingDueDatePicker = false
@@ -88,6 +91,10 @@ struct TaskRowView: View {
     /// solid blue fill below (see body's .background).
     private var isEditingAnything: Bool {
         isEditingTitle || isEditingProject || isEditingTag
+    }
+
+    private var idleSelectionFill: Color {
+        isPaneFocused ? editingRowBorderColor : Color(red: 70/255, green: 70/255, blue: 70/255)
     }
 
     var body: some View {
@@ -118,11 +125,23 @@ struct TaskRowView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                titleView
+                HStack(alignment: .center, spacing: 4) {
+                    titleView
+                    Spacer(minLength: 0)
+                    if isSelected {
+                        dueDateChip
+                    } else if let dueDate = task.dueDate {
+                        Text(dueDateLabel(dueDate))
+                            .font(.system(size: 13))
+                            .foregroundStyle(dueDateTint(dueDate))
+                            .fixedSize()
+                    }
+                }
+                .padding(.top, 1)
 
                 if isSelected {
                     interactiveMetadataRow
-                } else if projectName != nil || !tagNames.isEmpty || task.dueDate != nil || task.deferDate != nil {
+                } else if projectName != nil || !tagNames.isEmpty {
                     staticMetadataRow
                 }
 
@@ -135,15 +154,16 @@ struct TaskRowView: View {
                 }
             }
 
-            Spacer()
-
-            if task.flagged {
-                Image(systemName: "flag.fill")
-                    .foregroundStyle(.orange)
-                    .font(.caption)
-            }
+            // Flagged icon hidden — uncomment to restore
+            // if task.flagged {
+            //     Image(systemName: "flag.fill")
+            //         .foregroundStyle(.orange)
+            //         .font(.caption)
+            // }
         }
-        .padding(.vertical, 4)
+        .padding(.top, 4)
+        .padding(.bottom, 2.3)
+        //.padding(.vertical, 3)         // inner: gives the pill its height
         .padding(.leading, 6 + leadingIndent)
         .padding(.trailing, 6)
         .background {
@@ -154,7 +174,7 @@ struct TaskRowView: View {
             // row's own text fields (title, project, tag) switches to a
             // dark charcoal fill with a blue border instead (omni.png).
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(isSelected ? (isEditingAnything ? editingRowFillColor : editingRowBorderColor) : Color.clear)
+                .fill(isSelected ? (isEditingAnything ? editingRowFillColor : idleSelectionFill) : Color.clear)
                 .overlay {
                     if isSelected && isEditingAnything {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -162,6 +182,9 @@ struct TaskRowView: View {
                     }
                 }
         }
+        //.padding(.vertical, -3)
+        .padding(.top, isSelected ? -4 : -4)
+        .padding(.bottom, isSelected ? -4 : -2.3)        // outer: pulls rows together without shrinking the pill
         .contentShape(Rectangle())
         // .simultaneousGesture (not .onTapGesture) — .onTapGesture
         // recognizes exclusively, competing with .draggable (applied by
@@ -216,10 +239,11 @@ struct TaskRowView: View {
             // including here, so this only needs to handle promoting an
             // already-selected row into rename mode.
             text
+                .transaction { $0.animation = nil }
                 .contentShape(Rectangle())
                 .simultaneousGesture(
                     TapGesture().onEnded {
-                        if isSelected {
+                        if isSelected && isPaneFocused {
                             isEditingTitle = true
                         }
                     }
@@ -236,22 +260,20 @@ struct TaskRowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if !tagNames.isEmpty {
-                Label(tagNames.joined(separator: ", "), systemImage: "tag")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.gray.opacity(0.2), in: .capsule)
-            }
-            if let dueDate = task.dueDate {
-                DateChip(text: dueDate.formatted(.dateTime.month(.abbreviated).day()),
-                         systemImage: "calendar", tint: dueDateTint(dueDate))
-            }
-            if let deferDate = task.deferDate {
-                DateChip(text: deferDate.formatted(.dateTime.month(.abbreviated).day()),
-                         systemImage: "clock", tint: .secondary)
-            }
+            // Tag display hidden — uncomment to restore
+            // if !tagNames.isEmpty {
+            //     Label(tagNames.joined(separator: ", "), systemImage: "tag")
+            //         .font(.caption)
+            //         .foregroundStyle(.secondary)
+            //         .padding(.horizontal, 6)
+            //         .padding(.vertical, 2)
+            //         .background(Color.gray.opacity(0.2), in: .capsule)
+            // }
+            // Defer chip hidden — uncomment to restore
+            // if let deferDate = task.deferDate {
+            //     DateChip(text: deferDate.formatted(.dateTime.month(.abbreviated).day()),
+            //              systemImage: "clock", tint: .secondary)
+            // }
         }
     }
 
@@ -262,8 +284,7 @@ struct TaskRowView: View {
             if showsProjectPicker {
                 projectPickerChip
             }
-            tagChips
-            dueDateChip
+            // tagChips hidden — uncomment to restore
         }
         .padding(.top, 2)
     }
@@ -353,119 +374,11 @@ struct TaskRowView: View {
         task.updatedAt = Date()
     }
 
-    @ViewBuilder
-    private var tagChips: some View {
-        let assignedIDs = Set(allTaskTags.filter { $0.taskID == task.id }.map(\.tagID))
-        let assigned = allTags.filter { assignedIDs.contains($0.id) }
-        let unassigned = allTags.filter { !assignedIDs.contains($0.id) }
-
-        ForEach(assigned) { tag in
-            Button {
-                Mutations.removeTag(tag, from: task, in: modelContext)
-            } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: "tag.fill")
-                        .font(.system(size: 9))
-                    Text(tag.name)
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                }
-                .font(.caption)
-                .foregroundStyle(selectedChipTextColor)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(selectedChipBackground, in: .capsule)
-            }
-            .buttonStyle(.plain)
-        }
-
-        addTagChip(hasAssignedTags: !assigned.isEmpty, unassigned: unassigned)
-    }
-
-    /// Two separate tap targets, matching projectPickerChip/OmniFocus: the
-    /// icon/label itself enters inline text-edit mode (type a name to
-    /// find-or-create a tag and add it right there), while the chevron
-    /// (shown only when there's at least one unassigned tag to offer)
-    /// opens a menu to pick an existing one instead — see commitTagField.
-    private func addTagChip(hasAssignedTags: Bool, unassigned: [Tag]) -> some View {
-        HStack(spacing: 3) {
-            if isEditingTag {
-                Image(systemName: "tag")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                EditableNameText(
-                    name: $tagFieldDraft,
-                    font: .caption,
-                    isSelected: true,
-                    placeholder: "Tag",
-                    onCommit: commitTagField
-                )
-                .frame(width: 50)
-            } else {
-                Button {
-                    tagFieldDraft = ""
-                    isEditingTag = true
-                } label: {
-                    // Explicit icon + Text (not Label(_:systemImage:)) so
-                    // the icon can't get dropped by Label's own space-
-                    // constrained icon-vs-text layout choices inside this
-                    // narrow a frame.
-                    HStack(spacing: 3) {
-                        Image(systemName: hasAssignedTags ? "plus" : "tag")
-                        if !hasAssignedTags {
-                            Text("Tag")
-                        }
-                    }
-                    .font(.caption)
-                    // A lone "+" (there's already at least one tag pill
-                    // to its left) reads as its own small chip, matching
-                    // lightGray.png; the plain "Tag" placeholder instead
-                    // matches Project's boxless label.
-                    .foregroundStyle(hasAssignedTags ? selectedChipTextColor : selectedMetadataLabelColor)
-                    .padding(.horizontal, hasAssignedTags ? 6 : 0)
-                    .padding(.vertical, hasAssignedTags ? 2 : 0)
-                    .background(hasAssignedTags ? selectedChipBackground : Color.clear, in: .capsule)
-                }
-                .buttonStyle(.plain)
-                .frame(width: hasAssignedTags ? nil : 40)
-            }
-
-            if !unassigned.isEmpty {
-                Menu {
-                    ForEach(unassigned) { tag in
-                        Button(tag.name) {
-                            Mutations.addTag(tag, to: task, in: modelContext)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(selectedMetadataLabelColor)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .tint(selectedMetadataLabelColor)
-                .fixedSize()
-            }
-        }
-    }
-
-    /// Finds an existing tag matching the typed name (case-insensitive)
-    /// rather than always creating a duplicate, and only creates a new one
-    /// when nothing matches — mirrors commitProjectField, except this adds
-    /// to the task's tag set instead of replacing a single value.
-    private func commitTagField() {
-        isEditingTag = false
-        let trimmed = tagFieldDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let matchedTag = allTags.first { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }
-        let tag = matchedTag ?? {
-            let newTag = Tag(name: trimmed)
-            modelContext.insert(newTag)
-            return newTag
-        }()
-        Mutations.addTag(tag, to: task, in: modelContext)
-    }
+    // Tag chips hidden — uncomment tagChips, addTagChip, commitTagField to restore
+    // @ViewBuilder
+    // private var tagChips: some View { ... }
+    // private func addTagChip(hasAssignedTags: Bool, unassigned: [Tag]) -> some View { ... }
+    // private func commitTagField() { ... }
 
     @ViewBuilder
     private var dueDateChip: some View {
@@ -476,7 +389,7 @@ struct TaskRowView: View {
                         showingDueDatePicker = true
                     } label: {
                         Label(due.formatted(.dateTime.month(.abbreviated).day()), systemImage: "calendar")
-                            .font(.caption)
+                            .font(.system(size: 13))
                             .foregroundStyle(dueDateTint(due, dimColor: selectedMetadataLabelColor))
                     }
                     .buttonStyle(.plain)
@@ -494,8 +407,12 @@ struct TaskRowView: View {
                 Button {
                     showingDueDatePicker = true
                 } label: {
-                    Label("Due", systemImage: "calendar.badge.plus")
-                        .font(.caption)
+                    HStack(spacing: 3) {
+                        Image(systemName: "calendar.badge.plus")
+                            .font(.system(size: 13))
+                        Text("Due")
+                            .font(.system(size: 13))
+                    }
                         .foregroundStyle(selectedMetadataLabelColor)
                 }
                 .buttonStyle(.plain)
@@ -544,19 +461,25 @@ struct TaskRowView: View {
 
     private var checkboxTint: Color {
         if task.completed { return .secondary }
-        return isOverdue ? .red : .secondary
+        if let dueDate = task.dueDate { return dueDateTint(dueDate) }
+        return .secondary
     }
 
     /// Matches OmniFocus's proximity-based due-date coloring: overdue is
     /// red, due today/tomorrow is orange, anything further out is neutral.
+    private func dueDateLabel(_ date: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(date) { return "Today" }
+        if cal.isDateInTomorrow(date) { return "Tomorrow" }
+        return date.formatted(.dateTime.month(.abbreviated).day())
+    }
+
     private func dueDateTint(_ dueDate: Date, dimColor: Color = .secondary) -> Color {
         guard !task.completed else { return dimColor }
-        let calendar = Calendar.current
+        let cal = Calendar.current
+        if cal.isDateInToday(dueDate) { return .orange }
+        if cal.isDateInTomorrow(dueDate) { return .yellow }
         if dueDate < Date() { return .red }
-        if let tomorrowEnd = calendar.date(byAdding: .day, value: 2, to: calendar.startOfDay(for: Date())),
-           dueDate < tomorrowEnd {
-            return .orange
-        }
         return dimColor
     }
 }
@@ -573,7 +496,7 @@ private struct DateChip: View {
             .font(.caption2.weight(.medium))
             .foregroundStyle(tint)
             .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.vertical, 2.3)
             .background(tint.opacity(0.15), in: .capsule)
     }
 }

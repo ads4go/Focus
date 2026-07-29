@@ -54,11 +54,17 @@ struct ContentView: View {
     /// native Set-based selection) narrows to just those. Empty means "no
     /// filter" everywhere these are read, never "show nothing."
     @State private var selectedProjectIDs: Set<UUID> = []
+    /// Project selected via a section header in the middle pane — drives
+    /// the right pane's ProjectDetailView independently of the left pane
+    /// filter (selectedProjectIDs), so clicking a middle-pane header never
+    /// re-filters the task list.
+    @State private var middlePaneSelectedProjectID: UUID? = nil
     @State private var selectedTagIDs: Set<UUID> = []
     /// Separate from selectedTagIDs: Flagged's own left pane is a tag
     /// filter over flagged items specifically, independent of whatever's
     /// selected on the Tags tab.
     @State private var selectedFlaggedTagIDs: Set<UUID> = []
+    @State private var selectedDoneProjectIDs: Set<UUID> = []
     @State private var selectedTaskID: UUID?
     /// Whether the Projects left pane (ProjectListView) is the pane the
     /// user last interacted with, as opposed to the middle task list or a
@@ -92,7 +98,7 @@ struct ContentView: View {
 
         var width = railFootprint
         switch rail {
-        case .projects, .review, .tags, .forecast, .flagged:
+        case .projects, .review, .tags, .forecast, .flagged, .done:
             width += collapsedRails.contains(rail)
                 ? Self.collapsedGapWidth + Self.middlePaneMinWidth
                 : Self.leftPaneMinWidth + dividerWidth + Self.middlePaneMinWidth
@@ -143,7 +149,7 @@ struct ContentView: View {
     /// space the left pane is genuinely occupying at that moment.
     private var leftAndMiddleSectionReserve: CGFloat {
         switch rail {
-        case .projects, .review, .tags, .forecast, .flagged:
+        case .projects, .review, .tags, .forecast, .flagged, .done:
             return collapsedRails.contains(rail)
                 ? Self.collapsedGapWidth + Self.middlePaneMinWidth
                 : leftPaneWidth + Self.dividerWidth + Self.middlePaneMinWidth
@@ -279,6 +285,7 @@ struct ContentView: View {
         .onChange(of: selectedTaskID) { _, newTaskID in
             guard newTaskID != nil, rail == .projects else { return }
             isProjectsListFocused = false
+            middlePaneSelectedProjectID = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave, object: modelContext)) { _ in
             schedulePush()
@@ -305,7 +312,9 @@ struct ContentView: View {
             selectedProjectIDs = []
             selectedTagIDs = []
             selectedFlaggedTagIDs = []
+            selectedDoneProjectIDs = []
             selectedTaskID = nil
+            middlePaneSelectedProjectID = nil
             isProjectsListFocused = false
             return
         }
@@ -336,7 +345,13 @@ struct ContentView: View {
                 selectedProjectIDs = ids
                 selectedTaskID = nil
                 isProjectsListFocused = true
+                middlePaneSelectedProjectID = nil
             }
+            .simultaneousGesture(TapGesture().onEnded {
+                isProjectsListFocused = true
+                selectedTaskID = nil
+                middlePaneSelectedProjectID = nil
+            })
         case .review:
             // Single-select paging by design (see ReviewView) — wraps its
             // one ID into the shared multi-select state as a lone element.
@@ -361,6 +376,11 @@ struct ContentView: View {
                 selectedFlaggedTagIDs = ids
                 selectedTaskID = nil
             }
+        case .done:
+            DoneListView { ids in
+                selectedDoneProjectIDs = ids
+                selectedTaskID = nil
+            }
         }
     }
 
@@ -375,7 +395,12 @@ struct ContentView: View {
             title: projectsDetailTitle,
             selectedTaskID: $selectedTaskID,
             accentColorOverride: rail == .review ? Color(red: 109/255.0, green: 124/255.0, blue: 255/255.0) : nil,
-            reviewProject: rail == .review ? selectedProject : nil
+            reviewProject: rail == .review ? selectedProject : nil,
+            onProjectSelect: { id in
+                middlePaneSelectedProjectID = id
+                if id != nil { isProjectsListFocused = false }
+            },
+            isPaneFocused: !isProjectsListFocused
         )
     }
 
@@ -398,7 +423,7 @@ struct ContentView: View {
     @ViewBuilder
     private func leftAndMiddleSection(totalWidth: CGFloat) -> some View {
         switch rail {
-        case .projects, .review, .tags, .forecast, .flagged:
+        case .projects, .review, .tags, .forecast, .flagged, .done:
             let effectiveWidth = min(leftPaneWidth, maxLeftPaneWidth(totalWidth: totalWidth))
             let isCollapsed = collapsedRails.contains(rail)
             HStack(alignment: .top, spacing: 0) {
@@ -457,6 +482,12 @@ struct ContentView: View {
                 title: "Flagged",
                 selectedTaskID: $selectedTaskID
             )
+        case .done:
+            TaskListView(
+                perspective: .done(selectedDoneProjectIDs),
+                title: "Done",
+                selectedTaskID: $selectedTaskID
+            )
         case .inbox:
             Color.clear
         }
@@ -482,9 +513,12 @@ struct ContentView: View {
     }
 
     private var selectedProject: Project? {
-        guard (rail == .projects || rail == .review), selectedProjectIDs.count == 1,
-              let id = selectedProjectIDs.first
-        else { return nil }
+        guard rail == .projects || rail == .review else { return nil }
+        // Middle pane header selection takes priority over left pane filter.
+        if let id = middlePaneSelectedProjectID {
+            return allProjects.first { $0.id == id }
+        }
+        guard selectedProjectIDs.count == 1, let id = selectedProjectIDs.first else { return nil }
         return allProjects.first { $0.id == id }
     }
 
@@ -522,7 +556,7 @@ struct ContentView: View {
             count = allTasks.filter { $0.deletedAt == nil && $0.flagged && !$0.completed && $0.parentTaskID == nil }.count
         case .review:
             count = allProjects.filter { $0.deletedAt == nil && !$0.isCompleted && $0.isDueForReview }.count
-        case .projects, .tags:
+        case .projects, .tags, .done:
             return nil
         }
         return count > 0 ? count : nil

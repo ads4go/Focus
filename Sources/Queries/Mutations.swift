@@ -59,11 +59,16 @@ enum Mutations {
     /// with it, the same tradeoff TaskListView already made.
     static func moveOrderable<T: Orderable>(_ dragged: T, beforeTarget target: T, in siblings: [T]) where T: Identifiable, T.ID == UUID {
         guard dragged.id != target.id else { return }
-        let remaining = siblings.filter { $0.id != dragged.id }
-        guard let targetIndex = remaining.firstIndex(where: { $0.id == target.id }) else { return }
-        let before = targetIndex > 0 ? remaining[targetIndex - 1].sortOrder : nil
-        dragged.sortOrder = sortOrder(after: before, before: target.sortOrder)
-        dragged.updatedAt = Date()
+        var ordered = siblings.sorted { $0.sortOrder < $1.sortOrder }
+        guard let fromIndex = ordered.firstIndex(where: { $0.id == dragged.id }),
+              ordered.contains(where: { $0.id == target.id }) else { return }
+        ordered.remove(at: fromIndex)
+        let insertAt = ordered.firstIndex(where: { $0.id == target.id })!
+        ordered.insert(dragged, at: insertAt)
+        for (i, item) in ordered.enumerated() {
+            item.sortOrder = i * 1000
+            item.updatedAt = Date()
+        }
     }
 
     /// A sortOrder placing a new/moved row strictly between `previous` and

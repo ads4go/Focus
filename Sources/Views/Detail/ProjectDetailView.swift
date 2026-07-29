@@ -20,7 +20,8 @@ struct ProjectDetailView: View {
 
                 statusSection
                 tagsSection
-                OptionalDateField(label: "Defer", date: deferBinding, touch: touch)
+                // Defer date hidden — uncomment to restore
+                // OptionalDateField(label: "Defer", date: deferBinding, touch: touch)
                 OptionalDateField(label: "Due", date: dueBinding, touch: touch)
                 notesSection
 

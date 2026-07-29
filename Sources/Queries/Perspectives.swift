@@ -13,6 +13,9 @@ enum Perspective: Hashable {
     /// tagIDs filters which tasks show; empty means no filter (every task
     /// that has at least one tag).
     case tags(Set<UUID> = [])
+    /// projectIDs filters which completed tasks show; empty means all
+    /// completed tasks regardless of project.
+    case done(Set<UUID> = [])
 }
 
 /// A task paired with its subtasks, for feeding SwiftUI's `List(_:children:)` —
@@ -75,6 +78,12 @@ enum Perspectives {
                 filtered = allTasks.filter { taggedTaskIDs.contains($0.id) }
             } else {
                 filtered = filterByTags(allTasks, tagIDs: tagIDs, allTaskTags: allTaskTags)
+            }
+        case .done(let projectIDs):
+            if projectIDs.isEmpty {
+                filtered = allTasks.filter { $0.completed }
+            } else {
+                filtered = allTasks.filter { $0.completed && ($0.projectID.map(projectIDs.contains) ?? false) }
             }
         }
         return filtered.sorted(by: taskSortOrder)

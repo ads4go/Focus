@@ -45,6 +45,7 @@ struct ProjectListView: View {
     @State private var listSelection: Set<UUID> = []
     @State private var collapsedFolderIDs: Set<UUID> = []
     @State private var dropTargetFolderID: UUID?
+    @State private var dropTargetProjectID: UUID?
     /// Decoupled from selection on purpose — a first click only selects a
     /// row; renaming its name needs a second, deliberate click on the
     /// already-selected name itself (see folderHeader/projectRow), matching
@@ -170,7 +171,12 @@ struct ProjectListView: View {
                     .filter { $0.folderID.map { folderIDs.contains($0) } ?? false }
                     .map { $0.id }
             )
-            onSelectionChange(directProjectIDs.union(folderProjectIDs))
+            let resolved = directProjectIDs.union(folderProjectIDs)
+            // When a folder is selected but contains no projects, resolved
+            // is empty — pass newIDs as a sentinel instead so the middle
+            // pane shows nothing (no task's projectID matches a folder UUID)
+            // rather than falling back to "show all" (empty = no filter).
+            onSelectionChange(newIDs.isEmpty ? [] : (resolved.isEmpty ? newIDs : resolved))
         }
     }
 
@@ -215,19 +221,25 @@ struct ProjectListView: View {
     /// kind. Nested (inside-a-folder) reordering doesn't need this since
     /// folders can't nest — projectRow's own moveOrderable call there is
     /// enough.
-    private func reorderRootItem(draggedID: UUID, beforeTargetID targetID: UUID) {
-        guard draggedID != targetID else { return }
-        let remaining = rootItems.filter { $0.id != draggedID }
-        guard let targetIndex = remaining.firstIndex(where: { $0.id == targetID }) else { return }
-        let before = targetIndex > 0 ? remaining[targetIndex - 1].sortOrder : nil
-        let newSortOrder = Mutations.sortOrder(after: before, before: remaining[targetIndex].sortOrder)
-        if let project = projects.first(where: { $0.id == draggedID }) {
-            project.sortOrder = newSortOrder
-            project.updatedAt = Date()
-        } else if let folder = folders.first(where: { $0.id == draggedID }) {
-            folder.sortOrder = newSortOrder
-            folder.updatedAt = Date()
+    private func reorderRootItem(draggedID: UUID, toBeforeIndex insertIndex: Int) {
+        var ordered = rootItems
+        guard let fromIndex = ordered.firstIndex(where: { $0.id == draggedID }) else { return }
+        let item = ordered.remove(at: fromIndex)
+        let adjusted = min(fromIndex < insertIndex ? insertIndex - 1 : insertIndex, ordered.count)
+        ordered.insert(item, at: adjusted)
+        for (i, rootItem) in ordered.enumerated() {
+            let newOrder = i * 1000
+            switch rootItem {
+            case .project(let p): p.sortOrder = newOrder; p.updatedAt = Date()
+            case .folder(let f): f.sortOrder = newOrder; f.updatedAt = Date()
+            }
         }
+    }
+
+    private func reorderRootItem(draggedID: UUID, beforeTargetID targetID: UUID) {
+        guard draggedID != targetID,
+              let targetIndex = rootItems.firstIndex(where: { $0.id == targetID }) else { return }
+        reorderRootItem(draggedID: draggedID, toBeforeIndex: targetIndex)
     }
 
     // MARK: - Selection
@@ -269,7 +281,7 @@ struct ProjectListView: View {
         let isSelected = listSelection.contains(folder.id)
         let isEditingName = editingItemID == folder.id
         let isDropTarget = dropTargetFolderID == folder.id
-        HStack(spacing: 4) {
+        HStack {
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     if isExpanded { collapsedFolderIDs.insert(folder.id) }
@@ -281,10 +293,6 @@ struct ProjectListView: View {
                     .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.gray))
                     .frame(width: 14)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    // A little breathing room from the pill's own left
-                    // curve — without it the chevron sits flush against
-                    // the rounded edge.
-                    .padding(.leading, 4)
             }
             .buttonStyle(.plain)
 
@@ -299,7 +307,6 @@ struct ProjectListView: View {
             Group {
                 let nameText = EditableNameText(
                     name: nameBinding(for: folder),
-                    foregroundColor: isSelected ? .white : .primary,
                     isSelected: isEditingName
                 )
                 if isEditingName {
@@ -309,13 +316,12 @@ struct ProjectListView: View {
                         .contentShape(Rectangle())
                         .simultaneousGesture(
                             TapGesture().onEnded {
-                                if isSelected { editingItemID = folder.id }
+                                if isSelected && isPaneFocused { editingItemID = folder.id }
                             }
                         )
                 }
             }
-            // Shifts just the text — the icon's own position is fine.
-            .padding(.leading, 2)
+            .padding(.leading, -2)
             Spacer()
         }
         // Gives the capsule below real pill proportions instead of just
@@ -396,7 +402,7 @@ struct ProjectListView: View {
                         .contentShape(Rectangle())
                         .simultaneousGesture(
                             TapGesture().onEnded {
-                                if isSelected { editingItemID = project.id }
+                                if isSelected && isPaneFocused { editingItemID = project.id }
                             }
                         )
                 }
@@ -421,9 +427,18 @@ struct ProjectListView: View {
                     }
                 }
         }
+        .overlay(alignment: .top) {
+            if dropTargetProjectID == project.id {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+                    .offset(y: -1)
+            }
+        }
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded { toggleSelection(project.id) })
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .listRowSeparator(.hidden)
         .draggable(project.id.uuidString)
         // Two things can land here: a task dragged from the middle pane
         // (reassigned to this project, appended at the end of its list —
@@ -474,6 +489,8 @@ struct ProjectListView: View {
                 return true
             }
             return false
+        } isTargeted: { targeted in
+            dropTargetProjectID = targeted ? project.id : nil
         }
         .contextMenu {
             Menu("Move to Folder") {
