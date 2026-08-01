@@ -206,7 +206,16 @@ struct ProjectListView: View {
     }
 
     private var rootItems: [RootItem] {
-        let rootProjects = projects.filter { $0.folderID == nil }
+        // Falls back to root for a project whose folderID doesn't match
+        // any currently-existing folder (an orphaned reference — e.g. the
+        // folder it pointed to got soft-deleted without un-parenting this
+        // particular project, a real scenario across two syncing devices)
+        // rather than letting it silently vanish: previously such a
+        // project matched neither this root filter (folderID != nil) nor
+        // any folderHeader's own filter (folderID != any real folder.id),
+        // so it rendered nowhere at all despite still being a live row.
+        let validFolderIDs = Set(folders.map(\.id))
+        let rootProjects = projects.filter { $0.folderID == nil || !validFolderIDs.contains($0.folderID!) }
         return (rootProjects.map(RootItem.project) + folders.map(RootItem.folder))
             .sorted { $0.sortOrder < $1.sortOrder }
     }
@@ -451,9 +460,16 @@ struct ProjectListView: View {
             guard let uuidString = items.first, let draggedID = UUID(uuidString: uuidString) else { return false }
             if let draggedTask = allTasks.first(where: { $0.id == draggedID }) {
                 if draggedTask.projectID != project.id {
-                    draggedTask.projectID = project.id
-                    draggedTask.updatedAt = Date()
+                    // Cascades to every subtask too, not just draggedTask
+                    // itself — see moveToProject's own doc comment.
+                    Mutations.moveToProject(draggedTask, projectID: project.id, in: modelContext)
                 }
+                // Dropped directly on the project itself (not on a specific
+                // task row, which would instead adopt that row's own
+                // parent via Mutations.moveTask) — unambiguously means
+                // "top-level in this project," so a dragged subaction
+                // doesn't keep pointing at its old parent.
+                draggedTask.parentTaskID = nil
                 let lastSortOrder = allTasks
                     .filter { $0.projectID == project.id && $0.id != draggedTask.id }
                     .map(\.sortOrder)
@@ -505,12 +521,13 @@ struct ProjectListView: View {
                     }
                 }
             }
-            Menu("Review Interval") {
-                Button("Daily") { setReviewInterval(project, 1) }
-                Button("Weekly") { setReviewInterval(project, 7) }
-                Button("Monthly") { setReviewInterval(project, 30) }
-                Button("Never") { setReviewInterval(project, nil) }
-            }
+            // Review Interval hidden for now — uncomment to restore.
+            // Menu("Review Interval") {
+            //     Button("Daily") { setReviewInterval(project, 1) }
+            //     Button("Weekly") { setReviewInterval(project, 7) }
+            //     Button("Monthly") { setReviewInterval(project, 30) }
+            //     Button("Never") { setReviewInterval(project, nil) }
+            // }
             Divider()
             Button("Delete Project", role: .destructive) {
                 Mutations.deleteProject(project, in: modelContext)

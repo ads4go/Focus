@@ -4,6 +4,7 @@ options:
   bundleIdPrefix: com.personal.focus
   deploymentTarget:
     macOS: "14.0"
+    iOS: "18.0"
 
 settings:
   base:
@@ -27,6 +28,8 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+        excludes:
+          - "iOS/**"
       - path: Resources
     dependencies:
       - package: Supabase
@@ -57,6 +60,40 @@ targets:
       testTargets:
         - FocusTests
       gatherCoverageData: false
+
+  FocusIOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Sources/Models
+      - path: Sources/Queries
+      - path: Sources/Sync
+      - path: Sources/Views/Auth
+      - path: Sources/Views/Detail
+      - path: Sources/iOS
+    dependencies:
+      - package: Supabase
+        product: Auth
+      - package: Supabase
+        product: PostgREST
+    configFiles:
+      Debug: Config/Secrets.xcconfig
+      Release: Config/Secrets.xcconfig
+    info:
+      path: Sources/iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Focus
+        UILaunchScreen: {}
+        SupabaseURL: "$(SUPABASE_URL)"
+        SupabaseAnonKey: "$(SUPABASE_ANON_KEY)"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.focus.mobile
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_PREVIEWS: YES
 
   FocusTests:
     type: bundle.unit-test

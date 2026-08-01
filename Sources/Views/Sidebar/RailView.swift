@@ -37,7 +37,10 @@ struct RailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 2) {
-                ForEach(RailItem.allCases) { item in
+                // Review hidden for now — uncomment to restore (see
+                // ContentView/ProjectListView/TaskListView for the other
+                // Review-related UI hidden alongside this).
+                ForEach(RailItem.allCases.filter { $0 != .review }) { item in
                     RailTile(item: item, isSelected: selection == item, badgeCount: badgeCount(item)) {
                         onSelect(item)
                     }

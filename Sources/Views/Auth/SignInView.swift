@@ -49,10 +49,15 @@ struct SignInView: View {
                 authStore.errorMessage = nil
                 authStore.statusMessage = nil
             }
+            #if os(macOS)
             .buttonStyle(.link)
+            #else
+            .buttonStyle(.plain)
+            .foregroundStyle(.blue)
+            #endif
         }
         .padding(32)
-        .frame(width: 360)
+        .frame(maxWidth: 360)
     }
 
     private func submit() {

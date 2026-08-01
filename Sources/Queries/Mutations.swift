@@ -42,11 +42,20 @@ enum Mutations {
     /// highlight instead of using List's native one (which can't be
     /// recolored), and loses that move-handle machinery as a result — see
     /// TaskRowView's .draggable/.dropDestination.
+    ///
+    /// Also adopts `target`'s own parentTaskID, making `dragged` a genuine
+    /// sibling of `target` rather than just landing at the right sortOrder
+    /// without actually reparenting — without this, dragging a subaction
+    /// out to a different parent (or out to top-level) only shuffled its
+    /// sortOrder, which the task tree ignores when target.parentTaskID
+    /// disagrees with dragged's own, so it never appeared to move at all
+    /// outside its existing parent's sibling group.
     static func moveTask(_ dragged: TaskItem, beforeTask target: TaskItem, in siblings: [TaskItem]) {
         guard dragged.id != target.id else { return }
         let remaining = siblings.filter { $0.id != dragged.id }
         guard let targetIndex = remaining.firstIndex(where: { $0.id == target.id }) else { return }
         let before = targetIndex > 0 ? remaining[targetIndex - 1].sortOrder : nil
+        dragged.parentTaskID = target.parentTaskID
         dragged.sortOrder = sortOrder(after: before, before: target.sortOrder)
         dragged.updatedAt = Date()
     }
@@ -89,6 +98,27 @@ enum Mutations {
 
     static func toggleCompleted(_ task: TaskItem, in context: ModelContext) {
         setCompleted(task, !task.completed, in: context)
+    }
+
+    /// Cascades to every subtask so dragging a task onto a different
+    /// project (ProjectListView's projectRow dropDestination) takes its
+    /// whole subtask tree along — without this, a moved task's children
+    /// kept the old projectID and lingered behind in the source project's
+    /// list, orphaned from the parent that had just moved out from under
+    /// them.
+    static func moveToProject(_ task: TaskItem, projectID: UUID?, in context: ModelContext) {
+        task.projectID = projectID
+        task.updatedAt = Date()
+
+        let taskID = task.id
+        let childDescriptor = FetchDescriptor<TaskItem>(
+            predicate: #Predicate { $0.parentTaskID == taskID && $0.deletedAt == nil }
+        )
+        if let children = try? context.fetch(childDescriptor) {
+            for child in children {
+                moveToProject(child, projectID: projectID, in: context)
+            }
+        }
     }
 
     /// Cascades to every subtask so completing (or reopening) a parent always

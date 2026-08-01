@@ -93,7 +93,18 @@ struct TaskDetailView: View {
                     }
                 }
                 .labelsHidden()
+                // Explicit rather than left to auto-resolve — a bare
+                // Picker/DatePicker inside a plain ScrollView (not a
+                // List/Form) can hit a layout-negotiation hang on iOS that
+                // this same ambiguity doesn't hit on macOS.
+                .pickerStyle(.menu)
 
+                // macOS-only: this actually does something there (jumps
+                // the rail to Projects and selects it — see ContentView's
+                // onJumpToProject). iOS never wires a real action into
+                // onJumpToProject (there's no equivalent cross-tab jump),
+                // so the button just sat there doing nothing.
+                #if os(macOS)
                 if let projectID = task.projectID {
                     Button {
                         onJumpToProject(projectID)
@@ -103,6 +114,7 @@ struct TaskDetailView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                 }
+                #endif
             }
         }
     }
@@ -176,9 +188,12 @@ struct OptionalDateField: View {
                 DatePicker(
                     "",
                     selection: Binding(get: { date }, set: { self.date = $0; touch() }),
-                    displayedComponents: [.date, .hourAndMinute]
+                    displayedComponents: [.date]
                 )
                 .labelsHidden()
+                // Explicit rather than left to auto-resolve — see
+                // projectSection's identical .pickerStyle(.menu) comment.
+                .datePickerStyle(.compact)
             } else {
                 Button {
                     date = Date()

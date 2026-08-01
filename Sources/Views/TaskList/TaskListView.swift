@@ -593,6 +593,16 @@ struct TaskListView: View {
         }
     }
 
+    /// When the left pane's filter narrows to exactly one project, that's
+    /// the obvious target for a new task even if it has no ProjectSection
+    /// yet — a brand-new, still-empty project has no section to click (see
+    /// projectSections above), so selectedProjectID alone can never be set
+    /// for it, and createProjectsTask's "+" had no way to target it either.
+    private var singleFilteredProjectID: UUID? {
+        guard case .projects(let ids) = perspective, ids.count == 1 else { return nil }
+        return ids.first
+    }
+
     private func reviewIntervalLabel(_ project: Project) -> String {
         switch project.reviewIntervalDays {
         case nil: return "No Review"
@@ -769,11 +779,14 @@ struct TaskListView: View {
     /// under it (see subaction.png) — this pane mixes several projects'
     /// actions together, so "insert after the selected sibling" wouldn't
     /// have one obvious project to land in the way Inbox's flat list does.
-    /// A selected *project* (its section header row, rather than one of its
-    /// actions — see selectedProjectID) instead adds a new top-level action
-    /// straight to that project. With nothing selected at all, it falls
-    /// back to that same "lands at the bottom" idea applied to the last
-    /// project section shown, appended after its own last top-level action.
+    /// A selected *project* — its section header row (selectedProjectID),
+    /// or the left pane narrowing the filter to exactly one project
+    /// (singleFilteredProjectID), which matters because a brand-new,
+    /// still-empty project has no section header to click in the first
+    /// place — instead adds a new top-level action straight to that
+    /// project. With nothing selected at all, it falls back to that same
+    /// "lands at the bottom" idea applied to the last project section
+    /// shown, appended after its own last top-level action.
     private func createProjectsTask() {
         let newTask: TaskItem
         if let selectedID = selectedTaskID, let parent = allTasks.first(where: { $0.id == selectedID }) {
@@ -781,8 +794,13 @@ struct TaskListView: View {
             // the new task becomes a sibling (same level), not a sub-subaction.
             let effectiveParentID = parent.parentTaskID ?? parent.id
             newTask = TaskItem(title: "", projectID: parent.projectID, parentTaskID: effectiveParentID)
-        } else if let projectID = selectedProjectID, let section = projectSections.first(where: { $0.id == projectID }) {
-            let lastSortOrder = section.nodes.map(\.task.sortOrder).max()
+        } else if let projectID = selectedProjectID ?? singleFilteredProjectID {
+            // .first(where:) rather than requiring a match — a brand-new,
+            // still-empty project has no section yet (see
+            // singleFilteredProjectID's own doc comment), so this must
+            // tolerate nil and fall back to Mutations.sortOrder's own
+            // both-nil default instead of insisting on an existing section.
+            let lastSortOrder = projectSections.first(where: { $0.id == projectID })?.nodes.map(\.task.sortOrder).max()
             newTask = TaskItem(
                 title: "",
                 projectID: projectID,
@@ -966,9 +984,14 @@ struct TaskListView: View {
                                   let dragged = allTasks.first(where: { $0.id == draggedID })
                             else { return false }
                             if dragged.projectID != section.project.id {
-                                dragged.projectID = section.project.id
-                                dragged.updatedAt = Date()
+                                // Cascades to every subtask too — see
+                                // moveToProject's own doc comment.
+                                Mutations.moveToProject(dragged, projectID: section.project.id, in: modelContext)
                             }
+                            // Dropped on the section header itself, not a
+                            // specific row — see ProjectListView's identical
+                            // parentTaskID reset for why.
+                            dragged.parentTaskID = nil
                             let lastSortOrder = section.nodes.map(\.task.sortOrder).max()
                             dragged.sortOrder = Mutations.sortOrder(after: lastSortOrder, before: nil)
                             return true
@@ -1211,15 +1234,17 @@ private struct TaskRow: View {
         // just siblings) so dropping one from a *different* project's
         // section onto this row also reassigns it to this row's project,
         // not just silently failing to find it.
-        .draggable(task.id.uuidString)
+        // (.draggable itself now lives in TaskRowView, co-located with its
+        // own tap gesture — see that file's doc comment for why.)
         .dropDestination(for: String.self) { items, _ in
             guard let uuidString = items.first,
                   let draggedID = UUID(uuidString: uuidString),
                   let dragged = allTasks.first(where: { $0.id == draggedID })
             else { return false }
             if dragged.projectID != task.projectID {
-                dragged.projectID = task.projectID
-                dragged.updatedAt = Date()
+                // Cascades to every subtask too — see moveToProject's own
+                // doc comment.
+                Mutations.moveToProject(dragged, projectID: task.projectID, in: modelContext)
             }
             Mutations.moveTask(dragged, beforeTask: task, in: siblings)
             return true

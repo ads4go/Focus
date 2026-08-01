@@ -42,6 +42,7 @@ enum SyncEngine {
     static func pushAll(context: ModelContext) async {
         let cutoff = Date()
         let since = SyncCursor.lastPushedAt
+        print("[SYNC] pushing everything with updatedAt > \(since) (raw: \(since.timeIntervalSinceReferenceDate))")
         do {
             try await pushDirty(
                 table: "folders", context: context,
@@ -95,6 +96,7 @@ enum SyncEngine {
 
     static func pullAll(context: ModelContext) async {
         let since = SyncCursor.lastPulledAt
+        print("[SYNC] pulling everything with updated_at >= \(since) (raw: \(since.timeIntervalSinceReferenceDate))")
         var maxSeenUpdatedAt: Date?
         var errors: [String] = []
 

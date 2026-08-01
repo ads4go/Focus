@@ -160,6 +160,23 @@ struct TaskRowView: View {
             //         .foregroundStyle(.orange)
             //         .font(.caption)
             // }
+
+            // A dedicated drag handle, not the row itself — this row is
+            // packed with its own interactive controls (checkbox, chevron,
+            // inline-editable title, project/tag/due-date chips), and a
+            // .draggable attached to the whole row genuinely conflicts with
+            // those on macOS (a well-documented SwiftUI limitation: a drag
+            // gesture recognizer competing with a row's own buttons/text
+            // fields for the same initial click can prevent the drag from
+            // ever starting at all). ProjectListView's own rows drag fine
+            // specifically because they're plain — just an icon and a
+            // label, nothing this row's own controls need to fight with.
+            Image(systemName: "line.3.horizontal")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .padding(.top, 4)
+                .contentShape(Rectangle())
+                .draggable(task.id.uuidString)
         }
         .padding(.top, 4)
         .padding(.bottom, 2.3)
@@ -187,12 +204,11 @@ struct TaskRowView: View {
         .padding(.bottom, isSelected ? -4 : -2.3)        // outer: pulls rows together without shrinking the pill
         .contentShape(Rectangle())
         // .simultaneousGesture (not .onTapGesture) — .onTapGesture
-        // recognizes exclusively, competing with .draggable (applied by
-        // the caller, TaskListView's rowContent, around this whole view)
-        // for the same initial press, which was enough to stop dragging
-        // from being recognized at all. simultaneousGesture explicitly
-        // lets both recognize side by side instead of one blocking the
-        // other.
+        // recognizes exclusively, competing with the drag handle's own
+        // .draggable for the same initial press, which was enough to stop
+        // dragging from being recognized at all. simultaneousGesture
+        // explicitly lets both recognize side by side instead of one
+        // blocking the other.
         .simultaneousGesture(TapGesture().onEnded(onSelect))
         .onAppear {
             // Freshly created tasks start with an empty title and are
