@@ -73,7 +73,6 @@ struct ContentView: View {
     /// this lives here rather than as local @FocusState there).
     @State private var isProjectsListFocused = true
     @State private var forecastSelectedDate: Date?
-    @State private var isShowingQuickEntry = false
     @State private var pushDebounceTask: Task<Void, Never>?
 
     @Query(filter: #Predicate<TaskItem> { $0.deletedAt == nil })
@@ -230,20 +229,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: minWindowWidth, minHeight: 65)
-        .sheet(isPresented: $isShowingQuickEntry) {
-            QuickEntryPanel(defaultProjectID: defaultProjectIDForQuickEntry) {
-                isShowingQuickEntry = false
-            }
-        }
         .toolbar {
-            ToolbarItem {
-                Button {
-                    isShowingQuickEntry = true
-                } label: {
-                    Label("New Action", systemImage: "plus")
-                }
-                .keyboardShortcut("n", modifiers: .command)
-            }
             ToolbarItem {
                 Button {
                     Task { await SyncEngine.syncNow(context: modelContext) }
@@ -252,7 +238,14 @@ struct ContentView: View {
                 }
             }
             ToolbarItem {
+                // Wipes local data + resets sync cursors before signing out
+                // — see SyncEngine.resetLocalData's doc comment for why
+                // signing out alone (previously all this button did) leaves
+                // stale local data and a stale cursor behind, so signing
+                // back in just resumes the old session instead of doing a
+                // fresh pull.
                 Button("Sign Out") {
+                    SyncEngine.resetLocalData(context: modelContext)
                     Task { await authStore.signOut() }
                 }
             }
@@ -524,11 +517,6 @@ struct ContentView: View {
 
     private var selectedTask: TaskItem? {
         selectedTaskID.flatMap { id in allTasks.first { $0.id == id } }
-    }
-
-    private var defaultProjectIDForQuickEntry: UUID? {
-        guard rail == .projects || rail == .review, selectedProjectIDs.count == 1 else { return nil }
-        return selectedProjectIDs.first
     }
 
     /// Rail badge counts. nil hides the badge (Projects/Tags never show

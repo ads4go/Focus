@@ -52,57 +52,62 @@ struct ProjectsScreen: View {
     @State private var isAddingFolder = false
     @State private var newProjectName = ""
     @State private var newFolderName = ""
+    /// Drives a sheet-presented ProjectDetailView from a row's "Edit"
+    /// context menu action — mirrors ProjectTaskListScreen's identical
+    /// info-button sheet, just reachable straight from this list too
+    /// instead of only after already drilling into the project.
+    @State private var selectedProjectForDetail: Project?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            list
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .alert("New Project", isPresented: $isAddingProject) {
-            TextField("Project name", text: $newProjectName)
-            Button("Cancel", role: .cancel) {}
-            Button("Add", action: commitNewProject)
-        }
-        .alert("New Folder", isPresented: $isAddingFolder) {
-            TextField("Folder name", text: $newFolderName)
-            Button("Cancel", role: .cancel) {}
-            Button("Add", action: commitNewFolder)
-        }
-    }
-
-    // Big colored perspective title, matching TaskListView's own header on
-    // macOS — title and "+" menu share one line, instead of the "+" sitting
-    // alone in the native toolbar above a separate title further down.
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Projects")
-                .font(.largeTitle.bold())
-                .foregroundStyle(PerspectiveTint.projects)
-            Spacer()
-            // Toggles the ambient \.editMode List reads for the .onMove
-            // handlers below — same reasoning as InboxScreen's own EditButton.
-            EditButton()
-                .foregroundStyle(PerspectiveTint.projects)
-            Menu {
-                Button("Add Project") {
-                    newProjectName = ""
-                    isAddingProject = true
+        list
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Real nav bar toolbar items — see InboxScreen's identical
+                // conversion for why, versus the custom header row this
+                // used to be.
+                ToolbarItem(placement: .principal) {
+                    Text("Projects")
+                        .font(.headline)
+                        .foregroundStyle(PerspectiveTint.projects)
                 }
-                Button("Add Folder") {
-                    newFolderName = ""
-                    isAddingFolder = true
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button("Add Project") {
+                            newProjectName = ""
+                            isAddingProject = true
+                        }
+                        Button("Add Folder") {
+                            newFolderName = ""
+                            isAddingFolder = true
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .tint(PerspectiveTint.projects)
                 }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.title3.weight(.semibold))
-                    // Explicit, not inherited — see InboxScreen's header for why.
-                    .foregroundStyle(PerspectiveTint.projects)
             }
-        }
-        .padding(.horizontal)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
+            .alert("New Project", isPresented: $isAddingProject) {
+                TextField("Project name", text: $newProjectName)
+                Button("Cancel", role: .cancel) {}
+                Button("Add", action: commitNewProject)
+            }
+            .alert("New Folder", isPresented: $isAddingFolder) {
+                TextField("Folder name", text: $newFolderName)
+                Button("Cancel", role: .cancel) {}
+                Button("Add", action: commitNewFolder)
+            }
+            .sheet(item: $selectedProjectForDetail) { project in
+                NavigationStack {
+                    ProjectEditSheet(project: project, tint: PerspectiveTint.projects)
+                        .navigationTitle("Project")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { selectedProjectForDetail = nil }
+                            }
+                        }
+                }
+            }
     }
 
     private var list: some View {
@@ -174,6 +179,7 @@ struct ProjectsScreen: View {
                 }
             }
         }
+        .buttonStyle(RowPressHighlightStyle(tint: PerspectiveTint.projects))
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
                 Mutations.deleteProject(project, in: modelContext)
@@ -181,24 +187,14 @@ struct ProjectsScreen: View {
                 Label("Delete", systemImage: "trash")
             }
         }
-        // Long-press menu, not drag-and-drop — moving a project into/out of
-        // a folder is a re-filing action, not a reorder, and this app's one
-        // prior attempt at custom drag gestures in this exact screen hung
-        // on iOS (see ProjectTaskListScreen history); a menu sidesteps that
-        // entirely. Mirrors ProjectListView's identical contextMenu on
-        // macOS (there triggered by right-click instead of long-press).
+        // Moving a project between folders now happens via the Folder row
+        // in ProjectEditSheet (opened by "Edit" here) instead of this
+        // menu directly.
         .contextMenu {
-            Menu("Move to Folder") {
-                Button("No Folder") {
-                    project.folderID = nil
-                    project.updatedAt = Date()
-                }
-                ForEach(folders) { folder in
-                    Button(folder.name) {
-                        project.folderID = folder.id
-                        project.updatedAt = Date()
-                    }
-                }
+            Button {
+                selectedProjectForDetail = project
+            } label: {
+                Label("Edit", systemImage: "pencil")
             }
         }
     }

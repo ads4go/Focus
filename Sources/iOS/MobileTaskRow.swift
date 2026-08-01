@@ -9,7 +9,6 @@ import SwiftUI
 /// project breadcrumb + tag chips, due-date label, flag glyph.
 struct MobileTaskRow: View {
     let task: TaskItem
-    var projectName: String? = nil
     var tagNames: [String] = []
     let onToggleComplete: () -> Void
 
@@ -42,13 +41,8 @@ struct MobileTaskRow: View {
                     }
                 }
 
-                if projectName != nil || !tagNames.isEmpty {
+                if !tagNames.isEmpty {
                     HStack(spacing: 6) {
-                        if let projectName {
-                            Label(projectName, systemImage: "circle.grid.2x2.fill")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
                         ForEach(tagNames, id: \.self) { name in
                             Text(name)
                                 .font(.caption2)
@@ -63,12 +57,15 @@ struct MobileTaskRow: View {
 
             Spacer(minLength: 0)
 
-            if task.flagged {
-                Image(systemName: "flag.fill")
-                    .foregroundStyle(.orange)
-                    .font(.caption)
-                    .padding(.top, 3)
-            }
+            // Flag glyph hidden — uncomment to restore (Flagged is an
+            // excluded perspective in this app, see RootTabView's doc
+            // comment).
+            // if task.flagged {
+            //     Image(systemName: "flag.fill")
+            //         .foregroundStyle(.orange)
+            //         .font(.caption)
+            //         .padding(.top, 3)
+            // }
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())

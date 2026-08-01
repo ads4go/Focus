@@ -49,14 +49,7 @@ struct MenuSheet: View {
     /// account's last-synced position (exactly the "old data missing"
     /// cursor bug this app hit once already, see ProjectsScreen history).
     private func logOut() {
-        try? modelContext.delete(model: TaskTag.self)
-        try? modelContext.delete(model: ProjectTag.self)
-        try? modelContext.delete(model: TaskItem.self)
-        try? modelContext.delete(model: Project.self)
-        try? modelContext.delete(model: Tag.self)
-        try? modelContext.delete(model: Folder.self)
-        SyncCursor.lastPulledAt = .distantPast
-        SyncCursor.lastPushedAt = .distantPast
+        SyncEngine.resetLocalData(context: modelContext)
         Task { await authStore.signOut() }
     }
 }

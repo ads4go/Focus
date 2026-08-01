@@ -12,63 +12,68 @@ struct InboxScreen: View {
     private var allTaskTags: [TaskTag]
 
     @State private var isShowingQuickEntry = false
+    /// Drives a sheet-presented TaskDetailView instead of a NavigationLink
+    /// push — matches ProjectTaskListScreen's identical choice (and
+    /// ProjectDetailView's own project-detail sheet), so tapping an action
+    /// item looks and behaves the same everywhere in the app.
+    @State private var selectedTaskForDetail: TaskItem?
 
     private var tasks: [TaskItem] {
         Perspectives.tasks(for: .inbox, allTasks: allTasks, allTaskTags: allTaskTags)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            list
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $isShowingQuickEntry) {
-            QuickEntrySheet(defaultProjectID: nil)
-        }
-    }
-
-    // Big colored perspective title, matching TaskListView's own header on
-    // macOS (Text(title).font(.largeTitle.bold()).foregroundStyle(accentColor),
-    // "+" button on the same line) instead of a separate native toolbar
-    // button floating above it — the native nav bar is hidden entirely so
-    // this row sits right at the top, same as Forecast's own header.
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Inbox")
-                .font(.largeTitle.bold())
-                .foregroundStyle(PerspectiveTint.inbox)
-            Spacer()
-            // Toggles the ambient \.editMode that List reads to show
-            // reorder handles for the .onMove below — inline here rather
-            // than in a .toolbar so it stays on the title's own line, same
-            // reasoning as the "+" button next to it.
-            EditButton()
-                .foregroundStyle(PerspectiveTint.inbox)
-            Button {
-                isShowingQuickEntry = true
-            } label: {
-                Image(systemName: "plus")
-                    .font(.title3.weight(.semibold))
+        list
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Real nav bar toolbar items, matching
+                // ProjectTaskListScreen's title+plus arrangement, rather
+                // than custom-built header content — see this app's
+                // comparison of the two approaches for why they render
+                // differently (native toolbar buttons get the system's own
+                // automatic chrome via .tint(), custom content doesn't).
+                ToolbarItem(placement: .principal) {
+                    Text("Inbox")
+                        .font(.headline)
+                        .foregroundStyle(PerspectiveTint.inbox)
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isShowingQuickEntry = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
                     // Explicit, not inherited from the environment's .tint —
                     // RootTabView changes that ambient tint the instant the
                     // selected tab changes (to recolor the tab bar icon),
                     // which is *before* the outgoing tab's content finishes
                     // animating away, so a button relying on inherited tint
                     // can flash the *destination* tab's color for a frame.
-                    .foregroundStyle(PerspectiveTint.inbox)
+                    .tint(PerspectiveTint.inbox)
+                }
             }
-        }
-        .padding(.horizontal)
-        .padding(.top, 12)
-        .padding(.bottom, 6)
+            .sheet(isPresented: $isShowingQuickEntry) {
+                QuickEntrySheet(defaultProjectID: nil)
+            }
+            .sheet(item: $selectedTaskForDetail) { task in
+                NavigationStack {
+                    TaskEditSheet(task: task, tint: PerspectiveTint.inbox)
+                        .navigationTitle("Action")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { selectedTaskForDetail = nil }
+                            }
+                        }
+                }
+            }
     }
 
     private var list: some View {
         List {
             ForEach(tasks) { task in
-                NavigationLink {
-                    TaskDetailView(task: task)
+                Button {
+                    selectedTaskForDetail = task
                 } label: {
                     MobileTaskRow(
                         task: task,
@@ -76,6 +81,7 @@ struct InboxScreen: View {
                         onToggleComplete: { Mutations.toggleCompleted(task, in: modelContext) }
                     )
                 }
+                .buttonStyle(RowPressHighlightStyle(tint: PerspectiveTint.inbox))
                 .swipeActions(edge: .leading) {
                     Button {
                         Mutations.toggleCompleted(task, in: modelContext)
@@ -90,23 +96,22 @@ struct InboxScreen: View {
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
-                    Button {
-                        task.flagged.toggle()
-                        task.updatedAt = Date()
-                    } label: {
-                        Label("Flag", systemImage: "flag.fill")
-                    }
-                    .tint(.orange)
+                    // Flag swipe action hidden — uncomment to restore
+                    // (Flagged is an excluded perspective in this app, see
+                    // RootTabView's doc comment).
+                    // Button {
+                    //     task.flagged.toggle()
+                    //     task.updatedAt = Date()
+                    // } label: {
+                    //     Label("Flag", systemImage: "flag.fill")
+                    // }
+                    // .tint(.orange)
                 }
+                .listRowSeparator(.hidden)
             }
             .onMove(perform: moveTask)
         }
         .listStyle(.plain)
-        .overlay {
-            if tasks.isEmpty {
-                ContentUnavailableView("No Inbox Items", systemImage: "tray")
-            }
-        }
     }
 
     private func moveTask(from offsets: IndexSet, to destination: Int) {

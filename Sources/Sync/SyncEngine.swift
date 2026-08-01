@@ -29,6 +29,29 @@ enum SyncEngine {
     static private(set) var isSyncing = false
     static private(set) var lastError: String?
 
+    /// Wipes every synced model locally and resets both cursors to
+    /// `.distantPast`, so the next sign-in does a full fresh pull instead of
+    /// resuming from wherever this device's cursors happened to be — signing
+    /// out only ends the Supabase session (see AuthSessionStore.signOut),
+    /// it was never responsible for local data hygiene, so callers that want
+    /// a clean slate (e.g. a "Log Out" action, as opposed to switching
+    /// accounts on the same signed-in-forever laptop) need to call this
+    /// explicitly first. Without it, signing back in (even as a different
+    /// user) just resumes the previous session's stale local store and
+    /// stale cursors, so any divergence from Supabase silently persists
+    /// instead of being resolved by a fresh pull.
+    static func resetLocalData(context: ModelContext) {
+        try? context.delete(model: TaskTag.self)
+        try? context.delete(model: ProjectTag.self)
+        try? context.delete(model: TaskItem.self)
+        try? context.delete(model: Project.self)
+        try? context.delete(model: Tag.self)
+        try? context.delete(model: Folder.self)
+        try? context.save()
+        SyncCursor.lastPulledAt = .distantPast
+        SyncCursor.lastPushedAt = .distantPast
+    }
+
     static func syncNow(context: ModelContext) async {
         guard !isSyncing else { return }
         isSyncing = true
@@ -43,45 +66,169 @@ enum SyncEngine {
         let cutoff = Date()
         let since = SyncCursor.lastPushedAt
         print("[SYNC] pushing everything with updatedAt > \(since) (raw: \(since.timeIntervalSinceReferenceDate))")
-        do {
+        // Soft-deletes any TaskTag/ProjectTag whose referenced tag/task/
+        // project no longer exists locally, for local data hygiene (a task
+        // showing a "tag" that doesn't actually exist anywhere is a real
+        // bug, not just a sync annoyance) — but this alone does NOT stop
+        // pushDirty below from re-attempting them this same cycle (it
+        // just bumped their updatedAt, making the dirty predicate MORE
+        // likely to match), so the orphanedJoinIDs exclusion passed into
+        // pushDirty is what actually prevents the repeat failure. See
+        // isOrphaned's own doc comment for why soft-deleting alone can't
+        // be the whole fix.
+        let orphaned = cleanOrphanedJoins(context: context)
+
+        // Which tags/projects/tasks must be force-included in this cycle's
+        // push even though they aren't themselves "dirty" — narrowly
+        // scoped to just the parents actually referenced by outgoing
+        // project_tags/task_tags rows this cycle. A join row can only push
+        // successfully if the parent it references actually exists in
+        // Supabase, and our local dirty cursor has no way of knowing
+        // whether that parent's *own* past push ever actually succeeded
+        // (see cleanOrphanedJoins's doc comment for the exact failure this
+        // guards against — a parent that silently never made it up stops
+        // looking dirty forever once its updatedAt falls behind the
+        // cursor). This used to force-include *every* row in these three
+        // tables every cycle regardless of dirtiness, which fixed that
+        // problem but created a worse one: PostgREST's upsert has no
+        // server-side last-write-wins check, so a device re-pushing its
+        // own stale copy of a row on its normal ~25s schedule could
+        // silently clobber a fresher edit the other device had just
+        // pushed moments earlier (this is what broke project reordering
+        // inside a folder — both devices kept re-asserting their own
+        // stale sortOrder). Scoping to just the referenced rows keeps the
+        // FK guarantee while only re-pushing something outside the normal
+        // dirty set when there's an actual join row that needs it this
+        // cycle.
+        let dirtyProjectTags = ((try? context.fetch(FetchDescriptor<ProjectTag>(
+            predicate: #Predicate<ProjectTag> { $0.updatedAt > since }
+        ))) ?? []).filter { !orphaned.projectTagIDs.contains($0.id) }
+        let dirtyTaskTags = ((try? context.fetch(FetchDescriptor<TaskTag>(
+            predicate: #Predicate<TaskTag> { $0.updatedAt > since }
+        ))) ?? []).filter { !orphaned.taskTagIDs.contains($0.id) }
+        let forceTagIDs = Set(dirtyProjectTags.map(\.tagID) + dirtyTaskTags.map(\.tagID))
+        let forceProjectIDs = Set(dirtyProjectTags.map(\.projectID))
+        let forceTaskIDs = Set(dirtyTaskTags.map(\.taskID))
+
+        // Each table pushes independently (its own do/catch) rather than
+        // sharing one do-block — a single table throwing used to abort
+        // every *later* table in this same cycle too (PostgREST rejecting
+        // "tags", say, meant "projects"/"tasks"/"task_tags" never even got
+        // attempted), which silently blocked unrelated edits from ever
+        // reaching Supabase. The push cursor only advances if every table
+        // succeeded, so a real failure still causes a full retry next
+        // cycle — this only removes the *cascading* block between tables.
+        var failures: [String] = []
+
+        func attempt(_ label: String, _ operation: () async throws -> Void) async {
+            do {
+                try await operation()
+            } catch {
+                failures.append("\(label): \(error.localizedDescription)")
+            }
+        }
+
+        await attempt("folders") {
             try await pushDirty(
                 table: "folders", context: context,
                 predicate: #Predicate<Folder> { $0.updatedAt > since }
             ) { FolderDTO($0) }
+        }
+        await attempt("tags") {
             try await pushDirty(
                 table: "tags", context: context,
-                predicate: #Predicate<Tag> { $0.updatedAt > since }
+                predicate: #Predicate<Tag> { $0.updatedAt > since || forceTagIDs.contains($0.id) }
             ) { TagDTO($0) }
+        }
+        await attempt("projects") {
             try await pushDirty(
                 table: "projects", context: context,
-                predicate: #Predicate<Project> { $0.updatedAt > since }
+                predicate: #Predicate<Project> { $0.updatedAt > since || forceProjectIDs.contains($0.id) }
             ) { ProjectDTO($0) }
+        }
+        await attempt("project_tags") {
             try await pushDirty(
                 table: "project_tags", context: context,
-                predicate: #Predicate<ProjectTag> { $0.updatedAt > since }
+                predicate: #Predicate<ProjectTag> { $0.updatedAt > since },
+                excluding: { orphaned.projectTagIDs.contains($0.id) }
             ) { ProjectTagDTO($0) }
+        }
+        await attempt("tasks") {
             try await pushDirty(
                 table: "tasks", context: context,
-                predicate: #Predicate<TaskItem> { $0.updatedAt > since }
+                predicate: #Predicate<TaskItem> { $0.updatedAt > since || forceTaskIDs.contains($0.id) }
             ) { TaskDTO($0) }
+        }
+        await attempt("task_tags") {
             try await pushDirty(
                 table: "task_tags", context: context,
-                predicate: #Predicate<TaskTag> { $0.updatedAt > since }
+                predicate: #Predicate<TaskTag> { $0.updatedAt > since },
+                excluding: { orphaned.taskTagIDs.contains($0.id) }
             ) { TaskTagDTO($0) }
+        }
+
+        // cleanOrphanedJoins above soft-deletes tombstoned rows in place —
+        // persist those regardless of whether any table's push succeeded.
+        try? context.save()
+
+        if failures.isEmpty {
             SyncCursor.lastPushedAt = cutoff
             lastError = nil
-        } catch {
-            lastError = "Push failed: \(error.localizedDescription)"
+        } else {
+            lastError = "Push failed: \(failures.joined(separator: "; "))"
         }
+    }
+
+    /// A TaskTag/ProjectTag referencing a tag (or task/project) that no
+    /// longer exists anywhere locally can never be pushed successfully —
+    /// Postgres's foreign key constraint rejects the row regardless of our
+    /// own deletedAt flag, since the DB has no concept of our app-level
+    /// soft-delete (a *soft-deleted* join still carries the same broken
+    /// reference). PostgREST also upserts a whole batch atomically, so
+    /// this one bad row blocked every *other* dirty task_tags/project_tags
+    /// row in the same batch too. Returns the offending ids so pushAll can
+    /// exclude them from this same cycle's push (soft-deleting them here
+    /// bumps their own updatedAt, which otherwise would make pushDirty's
+    /// own `updatedAt > since` predicate pick them right back up).
+    private static func cleanOrphanedJoins(context: ModelContext) -> (taskTagIDs: Set<UUID>, projectTagIDs: Set<UUID>) {
+        let now = Date()
+        guard let allTags = try? context.fetch(FetchDescriptor<Tag>()) else { return ([], []) }
+        let tagIDs = Set(allTags.map(\.id))
+
+        var orphanedTaskTagIDs: Set<UUID> = []
+        if let taskTags = try? context.fetch(FetchDescriptor<TaskTag>(predicate: #Predicate { $0.deletedAt == nil })),
+           let allTasks = try? context.fetch(FetchDescriptor<TaskItem>()) {
+            let taskIDs = Set(allTasks.map(\.id))
+            for taskTag in taskTags where !tagIDs.contains(taskTag.tagID) || !taskIDs.contains(taskTag.taskID) {
+                taskTag.deletedAt = now
+                taskTag.updatedAt = now
+                orphanedTaskTagIDs.insert(taskTag.id)
+            }
+        }
+
+        var orphanedProjectTagIDs: Set<UUID> = []
+        if let projectTags = try? context.fetch(FetchDescriptor<ProjectTag>(predicate: #Predicate { $0.deletedAt == nil })),
+           let allProjects = try? context.fetch(FetchDescriptor<Project>()) {
+            let projectIDs = Set(allProjects.map(\.id))
+            for projectTag in projectTags where !tagIDs.contains(projectTag.tagID) || !projectIDs.contains(projectTag.projectID) {
+                projectTag.deletedAt = now
+                projectTag.updatedAt = now
+                orphanedProjectTagIDs.insert(projectTag.id)
+            }
+        }
+
+        return (orphanedTaskTagIDs, orphanedProjectTagIDs)
     }
 
     private static func pushDirty<Model: PersistentModel, DTO: Encodable>(
         table: String,
         context: ModelContext,
         predicate: Predicate<Model>,
+        excluding isExcluded: (Model) -> Bool = { _ in false },
         toDTO: (Model) -> DTO
     ) async throws {
         let rows = try context.fetch(FetchDescriptor<Model>(predicate: predicate))
+            .filter { !isExcluded($0) }
         guard !rows.isEmpty else { return }
         let dtos = rows.map(toDTO)
         let _ = try await logSyncResult("upsert \(table)") {
@@ -166,7 +313,25 @@ enum SyncEngine {
             errors.append("task_tags: \(error.localizedDescription)")
         }
 
+        // upsertFolder/upsertProject/etc. above mutate tracked model
+        // instances in place but never persist them — without an explicit
+        // save, whether/when those merges actually reach disk (and reach
+        // other views' @Query observers) depends entirely on SwiftData's
+        // own autosave timing rather than happening deterministically at
+        // the end of a sync cycle.
+        try? context.save()
+
         if let maxSeenUpdatedAt {
+            // fetchPage now filters with strict `.gt`, not `.gte` — an
+            // earlier version used `.gte` plus nudging this cursor a
+            // microsecond past the max seen timestamp to keep an
+            // already-fetched boundary row from matching again forever.
+            // That nudge never actually worked: PostgrestFilterValue's Date
+            // encoding (ISO8601DateFormatter with `.withFractionalSeconds`)
+            // only keeps 3 fractional digits, so a 1-microsecond nudge was
+            // silently rounded away before the request ever went out,
+            // leaving the cursor effectively stuck. Plain `.gt` sidesteps
+            // the whole problem — no encoding precision to lose.
             SyncCursor.lastPulledAt = maxSeenUpdatedAt
         }
 
@@ -188,7 +353,7 @@ enum SyncEngine {
                 try await SupabaseServices.postgrest
                     .from(table)
                     .select()
-                    .gte("updated_at", value: since)
+                    .gt("updated_at", value: since)
                     .order("updated_at", ascending: true)
                     .range(from: offset, to: offset + pageSize - 1)
                     .execute()
@@ -203,12 +368,28 @@ enum SyncEngine {
 
     // Remote wins only if strictly newer than the local row — otherwise the
     // local copy is either already pushed or about to be, so leave it alone.
+    //
+    // "Newer" is judged after rounding the local timestamp down to
+    // millisecond precision, not by a raw Date comparison: PostgrestFilterValue
+    // encodes Date via ISO8601DateFormatter's `.withFractionalSeconds`, which
+    // Apple's formatter always truncates to exactly 3 fractional digits —
+    // coarser than Swift's native Date, which keeps far more precision. Any
+    // dto decoded from a Supabase round trip has already lost everything
+    // finer than 1ms, so comparing it against a local Date stamped with
+    // full precision can make the *same* edit look "older" once it comes
+    // back — up to 1ms of local-only precision doesn't reflect a real
+    // difference in when the edits happened, and rejecting on it caused a
+    // genuinely newer remote edit to be silently discarded.
+    private static func isNewer(_ incoming: Date, thanLocal local: Date) -> Bool {
+        let localMillisFloor = (local.timeIntervalSince1970 * 1000).rounded(.down) / 1000
+        return incoming.timeIntervalSince1970 > localMillisFloor
+    }
 
     private static func upsertFolder(_ dto: FolderDTO, context: ModelContext) {
         let dtoID = dto.id
         let descriptor = FetchDescriptor<Folder>(predicate: #Predicate { $0.id == dtoID })
         if let existing = try? context.fetch(descriptor).first {
-            guard dto.updatedAt > existing.updatedAt else { return }
+            guard isNewer(dto.updatedAt, thanLocal: existing.updatedAt) else { return }
             existing.name = dto.name
             existing.sortOrder = dto.sortOrder
             existing.updatedAt = dto.updatedAt
@@ -225,7 +406,7 @@ enum SyncEngine {
         let dtoID = dto.id
         let descriptor = FetchDescriptor<Tag>(predicate: #Predicate { $0.id == dtoID })
         if let existing = try? context.fetch(descriptor).first {
-            guard dto.updatedAt > existing.updatedAt else { return }
+            guard isNewer(dto.updatedAt, thanLocal: existing.updatedAt) else { return }
             existing.name = dto.name
             existing.colorHex = dto.colorHex
             existing.parentTagID = dto.parentTagID
@@ -245,7 +426,11 @@ enum SyncEngine {
         let dtoID = dto.id
         let descriptor = FetchDescriptor<Project>(predicate: #Predicate { $0.id == dtoID })
         if let existing = try? context.fetch(descriptor).first {
-            guard dto.updatedAt > existing.updatedAt else { return }
+            guard isNewer(dto.updatedAt, thanLocal: existing.updatedAt) else {
+                print("[SYNC] pull rejected project \(dto.name) (\(dtoID)): incoming updatedAt \(dto.updatedAt) (raw \(dto.updatedAt.timeIntervalSinceReferenceDate)) is not newer than local \(existing.updatedAt) (raw \(existing.updatedAt.timeIntervalSinceReferenceDate)) — local sortOrder \(existing.sortOrder), incoming sortOrder \(dto.sortOrder)")
+                return
+            }
+            print("[SYNC] pull merging project \(dto.name) (\(dtoID)): sortOrder \(existing.sortOrder) -> \(dto.sortOrder)")
             existing.name = dto.name
             existing.notes = dto.notes
             existing.isCompleted = dto.isCompleted
@@ -273,7 +458,7 @@ enum SyncEngine {
         let dtoID = dto.id
         let descriptor = FetchDescriptor<ProjectTag>(predicate: #Predicate { $0.id == dtoID })
         if let existing = try? context.fetch(descriptor).first {
-            guard dto.updatedAt > existing.updatedAt else { return }
+            guard isNewer(dto.updatedAt, thanLocal: existing.updatedAt) else { return }
             existing.projectID = dto.projectID
             existing.tagID = dto.tagID
             existing.updatedAt = dto.updatedAt
@@ -290,7 +475,7 @@ enum SyncEngine {
         let dtoID = dto.id
         let descriptor = FetchDescriptor<TaskItem>(predicate: #Predicate { $0.id == dtoID })
         if let existing = try? context.fetch(descriptor).first {
-            guard dto.updatedAt > existing.updatedAt else { return }
+            guard isNewer(dto.updatedAt, thanLocal: existing.updatedAt) else { return }
             existing.title = dto.title
             existing.notes = dto.notes
             existing.projectID = dto.projectID
@@ -318,7 +503,7 @@ enum SyncEngine {
         let dtoID = dto.id
         let descriptor = FetchDescriptor<TaskTag>(predicate: #Predicate { $0.id == dtoID })
         if let existing = try? context.fetch(descriptor).first {
-            guard dto.updatedAt > existing.updatedAt else { return }
+            guard isNewer(dto.updatedAt, thanLocal: existing.updatedAt) else { return }
             existing.taskID = dto.taskID
             existing.tagID = dto.tagID
             existing.updatedAt = dto.updatedAt

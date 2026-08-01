@@ -11,8 +11,6 @@ struct ForecastScreen: View {
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<TaskItem> { $0.deletedAt == nil && !$0.completed })
     private var incompleteTasks: [TaskItem]
-    @Query(filter: #Predicate<Project> { $0.deletedAt == nil }, sort: \Project.name)
-    private var allProjects: [Project]
     @Query(filter: #Predicate<Tag> { $0.deletedAt == nil }, sort: \Tag.name)
     private var allTags: [Tag]
     @Query(filter: #Predicate<TaskTag> { $0.deletedAt == nil })
@@ -22,7 +20,7 @@ struct ForecastScreen: View {
 
     private let calendar = Calendar.current
     private var today: Date { calendar.startOfDay(for: Date()) }
-    private let stripDayCount = 4
+    private let stripDayCount = 3
 
     private struct DayGroup: Identifiable {
         let date: Date
@@ -96,50 +94,46 @@ struct ForecastScreen: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
             strip
             Divider()
             groupedList
         }
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    // Big colored perspective title, matching ForecastView's own header on
-    // macOS instead of the system's plain black/white navigationTitle.
-    private var header: some View {
-        Text("Forecast")
-            .font(.largeTitle.bold())
-            .foregroundStyle(PerspectiveTint.forecast)
-            .padding(.horizontal)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
+        .toolbar {
+            // Real nav bar toolbar item, matching Inbox/Projects' identical
+            // conversion, instead of the custom big-title header row this
+            // used to be.
+            ToolbarItem(placement: .principal) {
+                Text("Forecast")
+                    .font(.headline)
+                    .foregroundStyle(PerspectiveTint.forecast)
+            }
+        }
     }
 
     // MARK: - Summary strip
 
     private var strip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                let pastSelected = selectedCalendarDate.map { $0 < today } ?? false
-                stripTile(label: "Past", count: overdueTasks.count, isSelected: pastSelected) {
-                    selectedCalendarDate = pastSelected ? nil : .distantPast
-                }
-                ForEach(stripDays, id: \.self) { day in
-                    let daySelected = selectedCalendarDate.map { calendar.isDate($0, inSameDayAs: day) } ?? false
-                    stripTile(label: stripLabel(for: day), count: count(dueOn: day), isSelected: daySelected) {
-                        selectedCalendarDate = daySelected ? nil : calendar.startOfDay(for: day)
-                    }
-                }
-                let futureSelected = selectedCalendarDate.map { sel -> Bool in
-                    guard let last = stripDays.last else { return false }
-                    return sel > last
-                } ?? false
-                stripTile(label: "Future", count: futureCount, isSelected: futureSelected) {
-                    selectedCalendarDate = futureSelected ? nil : .distantFuture
+        HStack(spacing: 4) {
+            let pastSelected = selectedCalendarDate.map { $0 < today } ?? false
+            stripTile(label: "Past", count: overdueTasks.count, isSelected: pastSelected) {
+                selectedCalendarDate = pastSelected ? nil : .distantPast
+            }
+            ForEach(stripDays, id: \.self) { day in
+                let daySelected = selectedCalendarDate.map { calendar.isDate($0, inSameDayAs: day) } ?? false
+                stripTile(label: stripLabel(for: day), count: count(dueOn: day), isSelected: daySelected) {
+                    selectedCalendarDate = daySelected ? nil : calendar.startOfDay(for: day)
                 }
             }
-            .padding(.horizontal)
+            let futureSelected = selectedCalendarDate.map { sel -> Bool in
+                guard let last = stripDays.last else { return false }
+                return sel > last
+            } ?? false
+            stripTile(label: "Future", count: futureCount, isSelected: futureSelected) {
+                selectedCalendarDate = futureSelected ? nil : .distantFuture
+            }
         }
+        .padding(.horizontal, 6)
         .padding(.vertical, 8)
     }
 
@@ -149,11 +143,12 @@ struct ForecastScreen: View {
                 Text(label)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(isSelected ? .white : .secondary)
+                    .lineLimit(1)
                 Text("\(count)")
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(isSelected ? .white : (count > 0 ? .primary : .secondary))
             }
-            .frame(width: 48)
+            .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(
                 isSelected ? PerspectiveTint.forecast : Color.secondary.opacity(0.15),
@@ -186,11 +181,12 @@ struct ForecastScreen: View {
                         } label: {
                             MobileTaskRow(
                                 task: task,
-                                projectName: allProjects.first { $0.id == task.projectID }?.name,
                                 tagNames: Perspectives.tags(for: task, allTags: allTags, allTaskTags: allTaskTags).map(\.name),
                                 onToggleComplete: { Mutations.toggleCompleted(task, in: modelContext) }
                             )
                         }
+                        .buttonStyle(RowPressHighlightStyle(tint: PerspectiveTint.forecast))
+                        .listRowSeparator(.hidden)
                     }
                 }
             }

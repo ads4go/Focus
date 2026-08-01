@@ -26,14 +26,13 @@ struct ProjectTaskListScreen: View {
 
     @State private var isShowingQuickEntry = false
     @State private var isShowingProjectDetail = false
-    /// Drives TaskDetailView via .navigationDestination(item:) below rather
-    /// than embedding a NavigationLink directly in the row — both the
-    /// closure-based and value-based NavigationLink forms hang on tap here
-    /// specifically (a pushed, non-root screen combined with .swipeActions
-    /// rows); keeping the row itself a plain Button (already proven not to
-    /// hang, via the sheet this replaces) and triggering the push from a
-    /// separate modifier avoids whatever gesture-recognition conflict
-    /// NavigationLink-in-row hit.
+    /// Drives a sheet-presented TaskDetailView rather than embedding a
+    /// NavigationLink directly in the row — both the closure-based and
+    /// value-based NavigationLink forms hang on tap here specifically (a
+    /// pushed, non-root screen combined with .swipeActions rows); a sheet
+    /// sidesteps that push machinery entirely, and matches
+    /// isShowingProjectDetail's identical sheet below for the project
+    /// itself.
     @State private var selectedTaskForDetail: TaskItem?
 
     private var tasks: [TaskItem] {
@@ -41,12 +40,71 @@ struct ProjectTaskListScreen: View {
     }
 
     var body: some View {
+        taskList
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Tapping the title opens ProjectDetailView, replacing the
+                // separate "i" info button this used to be — a custom
+                // .principal item can be any tappable view, unlike a plain
+                // .navigationTitle string, and sits on the same nav bar
+                // line as the back button instead of in a separate header
+                // row below it.
+                ToolbarItem(placement: .principal) {
+                    Button {
+                        isShowingProjectDetail = true
+                    } label: {
+                        Text(project.name)
+                            .font(.headline)
+                            .foregroundStyle(PerspectiveTint.projects)
+                            .lineLimit(1)
+                    }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isShowingQuickEntry = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    // Explicit, not inherited — see InboxScreen's header for why.
+                    .tint(PerspectiveTint.projects)
+                }
+            }
+        .sheet(item: $selectedTaskForDetail) { task in
+            NavigationStack {
+                TaskEditSheet(task: task, tint: PerspectiveTint.projects)
+                    .navigationTitle("Action")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { selectedTaskForDetail = nil }
+                        }
+                    }
+            }
+        }
+        .sheet(isPresented: $isShowingQuickEntry) {
+            QuickEntrySheet(defaultProjectID: project.id, tint: PerspectiveTint.projects)
+        }
+        .sheet(isPresented: $isShowingProjectDetail) {
+            NavigationStack {
+                ProjectEditSheet(project: project, tint: PerspectiveTint.projects)
+                    .navigationTitle("Project")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { isShowingProjectDetail = false }
+                        }
+                    }
+            }
+        }
+    }
+
+    private var taskList: some View {
         List {
             ForEach(tasks) { task in
-                // Tap sets selectedTaskForDetail, which
-                // .navigationDestination(item:) below turns into a push —
-                // see that property's own doc comment for why this isn't a
-                // NavigationLink directly on the row.
+                // Tap sets selectedTaskForDetail, which the .sheet below
+                // turns into a sheet presentation — see that property's own
+                // doc comment for why this isn't a NavigationLink directly
+                // on the row.
                 Button {
                     selectedTaskForDetail = task
                 } label: {
@@ -56,7 +114,7 @@ struct ProjectTaskListScreen: View {
                         onToggleComplete: { Mutations.toggleCompleted(task, in: modelContext) }
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(RowPressHighlightStyle(tint: PerspectiveTint.projects))
                 .swipeActions(edge: .leading) {
                     Button {
                         Mutations.toggleCompleted(task, in: modelContext)
@@ -72,6 +130,7 @@ struct ProjectTaskListScreen: View {
                         Label("Delete", systemImage: "trash")
                     }
                 }
+                .listRowSeparator(.hidden)
             }
             .onMove(perform: moveTask)
         }
@@ -79,51 +138,6 @@ struct ProjectTaskListScreen: View {
         .overlay {
             if tasks.isEmpty {
                 ContentUnavailableView("No Actions", systemImage: "circle.grid.2x2")
-            }
-        }
-        .navigationTitle(project.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                EditButton()
-                    .tint(PerspectiveTint.projects)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isShowingQuickEntry = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                // Explicit, not inherited — see InboxScreen's header for why.
-                .tint(PerspectiveTint.projects)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isShowingProjectDetail = true
-                } label: {
-                    Image(systemName: "info.circle")
-                }
-                .tint(PerspectiveTint.projects)
-            }
-        }
-        .navigationDestination(item: $selectedTaskForDetail) { task in
-            TaskDetailView(task: task)
-                .navigationTitle("Action")
-                .navigationBarTitleDisplayMode(.inline)
-        }
-        .sheet(isPresented: $isShowingQuickEntry) {
-            QuickEntrySheet(defaultProjectID: project.id)
-        }
-        .sheet(isPresented: $isShowingProjectDetail) {
-            NavigationStack {
-                ProjectDetailView(project: project)
-                    .navigationTitle("Project")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { isShowingProjectDetail = false }
-                        }
-                    }
             }
         }
     }

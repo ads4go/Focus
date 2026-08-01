@@ -19,7 +19,7 @@ struct ProjectDetailView: View {
                     .onChange(of: project.name) { touch() }
 
                 statusSection
-                tagsSection
+                // tagsSection hidden — uncomment to restore
                 // Defer date hidden — uncomment to restore
                 // OptionalDateField(label: "Defer", date: deferBinding, touch: touch)
                 OptionalDateField(label: "Due", date: dueBinding, touch: touch)
@@ -62,14 +62,15 @@ struct ProjectDetailView: View {
                 .labelsHidden()
                 .frame(maxWidth: 160)
 
-                Button {
-                    project.flagged.toggle()
-                    touch()
-                } label: {
-                    Image(systemName: project.flagged ? "flag.fill" : "flag")
-                }
-                .buttonStyle(.bordered)
-                .tint(project.flagged ? .orange : .secondary)
+                // Flag button hidden — uncomment to restore
+                // Button {
+                //     project.flagged.toggle()
+                //     touch()
+                // } label: {
+                //     Image(systemName: project.flagged ? "flag.fill" : "flag")
+                // }
+                // .buttonStyle(.bordered)
+                // .tint(project.flagged ? .orange : .secondary)
             }
         }
     }
