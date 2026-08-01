@@ -553,6 +553,11 @@ struct TaskListView: View {
     /// TaskRowView's tagChips does for a selected task.
     @Query(filter: #Predicate<ProjectTag> { $0.deletedAt == nil })
     private var allProjectTags: [ProjectTag]
+    /// Only needed so projectSections can match the left pane's own
+    /// flattened folder/project order (see leftPaneProjectOrder) — this
+    /// pane never shows folders themselves, just borrows their ordering.
+    @Query(filter: #Predicate<Folder> { $0.deletedAt == nil }, sort: \Folder.sortOrder)
+    private var allFolders: [Folder]
 
     @State private var subtaskParent: TaskItem?
     @State private var pinnedIDs: Set<UUID> = []
@@ -585,11 +590,72 @@ struct TaskListView: View {
         let nodes: [TaskNode]
     }
 
+    /// The exact order projects appear in when reading top-to-bottom
+    /// through the left pane (ProjectListView) — folder header rows
+    /// themselves aren't represented (this pane has no equivalent of them),
+    /// but every project keeps its place relative to the others, including
+    /// staying grouped with its own folder-mates: a root-level folder and a
+    /// root-level project interleave by sortOrder (mirrors
+    /// ProjectListView.rootItems), and each folder's own projects are
+    /// inserted in place, sorted by their own sortOrder among just that
+    /// folder's siblings — plain sortOrder alone can't do this, since a
+    /// folder's projects are renumbered on their own scale (see
+    /// Mutations.moveOrderable) that doesn't necessarily interleave
+    /// correctly against sibling root-level projects' own sortOrder values.
+    private var leftPaneProjectOrder: [UUID] {
+        enum RootItem {
+            case project(Project)
+            case folder(Folder)
+            var sortOrder: Int {
+                switch self {
+                case .project(let project): return project.sortOrder
+                case .folder(let folder): return folder.sortOrder
+                }
+            }
+        }
+        let rootProjects = allProjects.filter { $0.folderID == nil }
+        let rootItems = (rootProjects.map(RootItem.project) + allFolders.map(RootItem.folder))
+            .sorted { $0.sortOrder < $1.sortOrder }
+        return rootItems.flatMap { item -> [UUID] in
+            switch item {
+            case .project(let project):
+                return [project.id]
+            case .folder(let folder):
+                return allProjects
+                    .filter { $0.folderID == folder.id }
+                    .sorted { $0.sortOrder < $1.sortOrder }
+                    .map(\.id)
+            }
+        }
+    }
+
     private var projectSections: [ProjectSection] {
         let grouped = Dictionary(grouping: nodes) { $0.task.projectID }
-        return allProjects.compactMap { project in
-            guard let groupNodes = grouped[project.id], !groupNodes.isEmpty else { return nil }
-            return ProjectSection(id: project.id, project: project, nodes: groupNodes)
+        // Every project the current filter includes gets its own section,
+        // even with zero tasks (nodes: []) — previously a project with no
+        // matching tasks was skipped entirely (guard ... !groupNodes.isEmpty
+        // else return nil), which is also what made a brand-new empty
+        // project impossible to target from this pane at all (see
+        // singleFilteredProjectID's own doc comment on createProjectsTask).
+        let filterIDs: Set<UUID>? = {
+            if case .projects(let ids) = perspective, !ids.isEmpty { return ids }
+            return nil
+        }()
+        let relevantProjects = filterIDs.map { ids in allProjects.filter { ids.contains($0.id) } } ?? allProjects
+        let sections = relevantProjects.map { project in
+            ProjectSection(id: project.id, project: project, nodes: grouped[project.id] ?? [])
+        }
+        // allProjects itself stays sorted by name (its @Query sort) since
+        // that's still the right order for the project-picker menu in
+        // TaskRowView's interactiveMetadataRow — reordering just this
+        // returned copy to leftPaneProjectOrder instead matches this
+        // pane's own section order to the left pane's without touching
+        // that picker's alphabetical order.
+        let order = leftPaneProjectOrder
+        return sections.sorted { lhs, rhs in
+            let lhsIndex = order.firstIndex(of: lhs.id) ?? .max
+            let rhsIndex = order.firstIndex(of: rhs.id) ?? .max
+            return lhsIndex < rhsIndex
         }
     }
 

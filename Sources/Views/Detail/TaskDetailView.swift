@@ -99,22 +99,20 @@ struct TaskDetailView: View {
                 // this same ambiguity doesn't hit on macOS.
                 .pickerStyle(.menu)
 
-                // macOS-only: this actually does something there (jumps
-                // the rail to Projects and selects it — see ContentView's
-                // onJumpToProject). iOS never wires a real action into
-                // onJumpToProject (there's no equivalent cross-tab jump),
-                // so the button just sat there doing nothing.
-                #if os(macOS)
-                if let projectID = task.projectID {
-                    Button {
-                        onJumpToProject(projectID)
-                    } label: {
-                        Image(systemName: "arrow.up.forward.square")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                }
-                #endif
+                // Jump-to-project button hidden — uncomment to restore
+                // (macOS-only: jumps the rail to Projects and selects it —
+                // see ContentView's onJumpToProject).
+                // #if os(macOS)
+                // if let projectID = task.projectID {
+                //     Button {
+                //         onJumpToProject(projectID)
+                //     } label: {
+                //         Image(systemName: "arrow.up.forward.square")
+                //     }
+                //     .buttonStyle(.plain)
+                //     .foregroundStyle(.secondary)
+                // }
+                // #endif
             }
         }
     }
