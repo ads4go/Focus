@@ -5,3 +5,4 @@ DerivedData/
 Config/Secrets.xcconfig
 xcuserdata/
 *.xcuserstate
+.idea/
