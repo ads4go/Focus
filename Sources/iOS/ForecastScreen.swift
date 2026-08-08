@@ -17,6 +17,10 @@ struct ForecastScreen: View {
     private var allTaskTags: [TaskTag]
 
     @State private var selectedCalendarDate: Date?
+    /// Drives a sheet-presented TaskEditSheet — matches Inbox/
+    /// ProjectTaskListScreen's identical choice so tapping an action item
+    /// looks and behaves the same everywhere in the app.
+    @State private var selectedTaskForDetail: TaskItem?
 
     private let calendar = Calendar.current
     private var today: Date { calendar.startOfDay(for: Date()) }
@@ -109,6 +113,18 @@ struct ForecastScreen: View {
                     .foregroundStyle(PerspectiveTint.forecast)
             }
         }
+        .sheet(item: $selectedTaskForDetail) { task in
+            NavigationStack {
+                TaskEditSheet(task: task, tint: PerspectiveTint.forecast)
+                    .navigationTitle("Action")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { selectedTaskForDetail = nil }
+                        }
+                    }
+            }
+        }
     }
 
     // MARK: - Summary strip
@@ -176,8 +192,8 @@ struct ForecastScreen: View {
             ForEach(filteredDateSections) { section in
                 Section(section.title) {
                     ForEach(section.tasks) { task in
-                        NavigationLink {
-                            TaskDetailView(task: task)
+                        Button {
+                            selectedTaskForDetail = task
                         } label: {
                             MobileTaskRow(
                                 task: task,
@@ -187,11 +203,13 @@ struct ForecastScreen: View {
                         }
                         .buttonStyle(RowPressHighlightStyle(tint: PerspectiveTint.forecast))
                         .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 16))
                     }
                 }
             }
         }
         .listStyle(.plain)
+        .environment(\.defaultMinListRowHeight, 16)
         .overlay {
             if filteredDateSections.isEmpty {
                 ContentUnavailableView("Nothing Due", systemImage: "calendar")

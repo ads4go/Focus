@@ -3,7 +3,7 @@ import SwiftUI
 struct SignInView: View {
     let authStore: AuthSessionStore
 
-    @State private var email = ""
+    @State private var username = ""
     @State private var password = ""
     @State private var isSigningUp = false
     @State private var isSubmitting = false
@@ -12,14 +12,18 @@ struct SignInView: View {
         VStack(spacing: 16) {
             Text("Focus")
                 .font(.largeTitle.bold())
-            Text("Sign in with the same account on every Mac you want this to sync to.")
+            Text("Sign in with the same username and password on every Mac you want this to sync to.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            TextField("Email", text: $email)
+            TextField("Username", text: $username)
                 .textFieldStyle(.roundedBorder)
                 .textContentType(.username)
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                #endif
+                .autocorrectionDisabled()
             SecureField("Password", text: $password)
                 .textFieldStyle(.roundedBorder)
                 .textContentType(isSigningUp ? .newPassword : .password)
@@ -42,7 +46,7 @@ struct SignInView: View {
                 submit()
             }
             .keyboardShortcut(.defaultAction)
-            .disabled(isSubmitting || email.isEmpty || password.isEmpty)
+            .disabled(isSubmitting || username.isEmpty || password.isEmpty)
 
             Button(isSigningUp ? "Already have an account? Sign In" : "New here? Create an Account") {
                 isSigningUp.toggle()
@@ -65,9 +69,9 @@ struct SignInView: View {
         isSubmitting = true
         Task {
             if isSigningUp {
-                await authStore.signUp(email: email, password: password)
+                await authStore.signUp(username: username, password: password)
             } else {
-                await authStore.signIn(email: email, password: password)
+                await authStore.signIn(username: username, password: password)
             }
             isSubmitting = false
         }

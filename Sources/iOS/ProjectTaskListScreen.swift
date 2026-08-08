@@ -131,10 +131,12 @@ struct ProjectTaskListScreen: View {
                     }
                 }
                 .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 16))
             }
             .onMove(perform: moveTask)
         }
         .listStyle(.plain)
+        .environment(\.defaultMinListRowHeight, 16)
         .overlay {
             if tasks.isEmpty {
                 ContentUnavailableView("No Actions", systemImage: "circle.grid.2x2")

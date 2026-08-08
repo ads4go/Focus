@@ -20,6 +20,10 @@ struct ReviewScreen: View {
 
     @State private var selection: UUID?
     @State private var isShowingQueue = false
+    /// Drives a sheet-presented TaskEditSheet — matches Inbox/Forecast/
+    /// ProjectTaskListScreen's identical choice so tapping an action item
+    /// looks and behaves the same everywhere in the app.
+    @State private var selectedTaskForDetail: TaskItem?
 
     private var dueProjects: [Project] {
         allProjects
@@ -55,6 +59,18 @@ struct ReviewScreen: View {
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Done") { isShowingQueue = false }
+                        }
+                    }
+            }
+        }
+        .sheet(item: $selectedTaskForDetail) { task in
+            NavigationStack {
+                TaskEditSheet(task: task, tint: PerspectiveTint.review)
+                    .navigationTitle("Action")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { selectedTaskForDetail = nil }
                         }
                     }
             }

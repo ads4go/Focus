@@ -67,7 +67,7 @@ struct MobileTaskRow: View {
             //         .padding(.top, 3)
             // }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 1)
         .contentShape(Rectangle())
     }
 
