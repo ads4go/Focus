@@ -17,7 +17,7 @@ struct RootTabView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selectedTab: Tab = .inbox
+    @State private var selectedTab: Tab = .projects
     @State private var isShowingMenu = false
     /// Mirrors ContentView's own schedulePush on macOS — debounces a
     /// push-only sync after a local SwiftData save so edits made on the

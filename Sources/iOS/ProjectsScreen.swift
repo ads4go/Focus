@@ -61,6 +61,7 @@ struct ProjectsScreen: View {
     /// info-button sheet, just reachable straight from this list too
     /// instead of only after already drilling into the project.
     @State private var selectedProjectForDetail: Project?
+    @State private var collapsedFolderIDs: Set<UUID> = []
 
     var body: some View {
         list
@@ -212,15 +213,37 @@ struct ProjectsScreen: View {
     @ViewBuilder
     private func folderSection(_ folder: Folder) -> some View {
         let folderProjects = projects.filter { $0.folderID == folder.id }
+        let isExpanded = !collapsedFolderIDs.contains(folder.id)
         Section {
-            ForEach(folderProjects) { project in
-                projectRow(project)
-            }
-            .onMove { offsets, destination in
-                Mutations.reorder(folderProjects, fromOffsets: offsets, toOffset: destination)
+            if isExpanded {
+                ForEach(folderProjects) { project in
+                    projectRow(project)
+                }
+                .onMove { offsets, destination in
+                    Mutations.reorder(folderProjects, fromOffsets: offsets, toOffset: destination)
+                }
             }
         } header: {
-            Label(folder.name, systemImage: "folder")
+            // Tapping anywhere on the header collapses/expands its
+            // projects — mirrors ProjectListView's identical chevron
+            // toggle on macOS.
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    if isExpanded {
+                        collapsedFolderIDs.insert(folder.id)
+                    } else {
+                        collapsedFolderIDs.remove(folder.id)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    Label(folder.name, systemImage: "folder")
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 }
