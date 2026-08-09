@@ -120,4 +120,23 @@ enum Perspectives {
     private static func taskSortOrder(_ lhs: TaskItem, _ rhs: TaskItem) -> Bool {
         return lhs.sortOrder < rhs.sortOrder
     }
+
+    // MARK: - Sharing
+
+    /// True when `project` has been shared with `currentUserID` — i.e. the
+    /// current user is a collaborator on it, not its owner. There's no
+    /// local ownerID field on Project (ownership is server-side only, like
+    /// every other synced model), so this is the only client-side signal
+    /// distinguishing "mine" from "shared with me": the owner never has a
+    /// ProjectShare row naming themselves as the recipient.
+    static func isProjectShared(_ project: Project, allShares: [ProjectShare], currentUserID: UUID?) -> Bool {
+        guard let currentUserID else { return false }
+        return allShares.contains { $0.projectID == project.id && $0.sharedWithUserID == currentUserID && $0.deletedAt == nil }
+    }
+
+    /// Active (non-revoked) shares for a single project, for a "Shared
+    /// With" list in the project's edit UI.
+    static func activeShares(for project: Project, allShares: [ProjectShare]) -> [ProjectShare] {
+        allShares.filter { $0.projectID == project.id && $0.deletedAt == nil }
+    }
 }

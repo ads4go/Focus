@@ -120,7 +120,10 @@ struct ForecastScreen: View {
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { selectedTaskForDetail = nil }
+                            Button("Done") {
+                                selectedTaskForDetail = nil
+                                Task { await SyncEngine.syncNow(context: modelContext) }
+                            }
                         }
                     }
             }

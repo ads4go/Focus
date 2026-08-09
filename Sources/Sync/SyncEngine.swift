@@ -43,6 +43,7 @@ enum SyncEngine {
     static func resetLocalData(context: ModelContext) {
         try? context.delete(model: TaskTag.self)
         try? context.delete(model: ProjectTag.self)
+        try? context.delete(model: ProjectShare.self)
         try? context.delete(model: TaskItem.self)
         try? context.delete(model: Project.self)
         try? context.delete(model: Tag.self)
@@ -145,6 +146,19 @@ enum SyncEngine {
                 table: "projects", context: context,
                 predicate: #Predicate<Project> { $0.updatedAt > since || forceProjectIDs.contains($0.id) }
             ) { ProjectDTO($0) }
+        }
+        // Placed right after "projects" (not grouped with the other join
+        // tables below) so a project created and shared in the same local
+        // session has already reached Supabase by the time its share row
+        // is attempted — project_shares' only FK parent is projects, and
+        // it's pushed synchronously earlier in this same cycle, so unlike
+        // project_tags/task_tags this doesn't need the forceProjectIDs-style
+        // re-push guard.
+        await attempt("project_shares") {
+            try await pushDirty(
+                table: "project_shares", context: context,
+                predicate: #Predicate<ProjectShare> { $0.updatedAt > since }
+            ) { ProjectShareDTO($0) }
         }
         await attempt("project_tags") {
             try await pushDirty(
@@ -278,6 +292,17 @@ enum SyncEngine {
             print("[SYNC] merged projects: \(projects.count)")
         } catch {
             errors.append("projects: \(error.localizedDescription)")
+        }
+
+        do {
+            let projectShares: [ProjectShareDTO] = try await fetchPage(table: "project_shares", since: since)
+            for dto in projectShares { upsertProjectShare(dto, context: context) }
+            if let m = projectShares.map(\.updatedAt).max() {
+                maxSeenUpdatedAt = max(maxSeenUpdatedAt ?? m, m)
+            }
+            print("[SYNC] merged project_shares: \(projectShares.count)")
+        } catch {
+            errors.append("project_shares: \(error.localizedDescription)")
         }
 
         do {
@@ -449,6 +474,25 @@ enum SyncEngine {
                 flagged: dto.flagged, dueDate: dto.dueDate, deferDate: dto.deferDate,
                 folderID: dto.folderID, sortOrder: dto.sortOrder,
                 reviewIntervalDays: dto.reviewIntervalDays, lastReviewedAt: dto.lastReviewedAt,
+                createdAt: dto.createdAt, updatedAt: dto.updatedAt, deletedAt: dto.deletedAt
+            ))
+        }
+    }
+
+    private static func upsertProjectShare(_ dto: ProjectShareDTO, context: ModelContext) {
+        let dtoID = dto.id
+        let descriptor = FetchDescriptor<ProjectShare>(predicate: #Predicate { $0.id == dtoID })
+        if let existing = try? context.fetch(descriptor).first {
+            guard isNewer(dto.updatedAt, thanLocal: existing.updatedAt) else { return }
+            existing.projectID = dto.projectID
+            existing.sharedWithUserID = dto.sharedWithUserID
+            existing.sharedWithUsername = dto.sharedWithUsername
+            existing.updatedAt = dto.updatedAt
+            existing.deletedAt = dto.deletedAt
+        } else {
+            context.insert(ProjectShare(
+                id: dto.id, projectID: dto.projectID, sharedWithUserID: dto.sharedWithUserID,
+                sharedWithUsername: dto.sharedWithUsername,
                 createdAt: dto.createdAt, updatedAt: dto.updatedAt, deletedAt: dto.deletedAt
             ))
         }

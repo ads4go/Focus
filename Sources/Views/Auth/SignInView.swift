@@ -12,10 +12,6 @@ struct SignInView: View {
         VStack(spacing: 16) {
             Text("Focus")
                 .font(.largeTitle.bold())
-            Text("Sign in with the same username and password on every Mac you want this to sync to.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
 
             TextField("Username", text: $username)
                 .textFieldStyle(.roundedBorder)
@@ -48,16 +44,18 @@ struct SignInView: View {
             .keyboardShortcut(.defaultAction)
             .disabled(isSubmitting || username.isEmpty || password.isEmpty)
 
+            // Accounts are created by hand via the Supabase Admin dashboard
+            // (see README), not self-serve — this toggle only makes sense
+            // on macOS, which is otherwise identical behavior. Leaving
+            // isSigningUp permanently false on iOS collapses every other
+            // ternary below to plain sign-in with no further changes.
+            #if os(macOS)
             Button(isSigningUp ? "Already have an account? Sign In" : "New here? Create an Account") {
                 isSigningUp.toggle()
                 authStore.errorMessage = nil
                 authStore.statusMessage = nil
             }
-            #if os(macOS)
             .buttonStyle(.link)
-            #else
-            .buttonStyle(.plain)
-            .foregroundStyle(.blue)
             #endif
         }
         .padding(32)

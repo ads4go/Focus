@@ -48,10 +48,14 @@ struct ProjectsScreen: View {
             .sorted { $0.sortOrder < $1.sortOrder }
     }
 
-    @State private var isAddingProject = false
     @State private var isAddingFolder = false
-    @State private var newProjectName = ""
     @State private var newFolderName = ""
+    /// Drives a sheet-presented ProjectEditSheet for the "+" > "Add Project"
+    /// flow, matching how adding an action looks (a Form sheet with the
+    /// title auto-focused) instead of a name-only alert — see the "+"
+    /// button's own action for why the project is inserted immediately
+    /// rather than deferred until a commit step.
+    @State private var newProjectDraft: Project?
     /// Drives a sheet-presented ProjectDetailView from a row's "Edit"
     /// context menu action — mirrors ProjectTaskListScreen's identical
     /// info-button sheet, just reachable straight from this list too
@@ -73,8 +77,9 @@ struct ProjectsScreen: View {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button("Add Project") {
-                            newProjectName = ""
-                            isAddingProject = true
+                            let project = Project(name: "")
+                            modelContext.insert(project)
+                            newProjectDraft = project
                         }
                         Button("Add Folder") {
                             newFolderName = ""
@@ -86,10 +91,25 @@ struct ProjectsScreen: View {
                     .tint(PerspectiveTint.projects)
                 }
             }
-            .alert("New Project", isPresented: $isAddingProject) {
-                TextField("Project name", text: $newProjectName)
-                Button("Cancel", role: .cancel) {}
-                Button("Add", action: commitNewProject)
+            .sheet(item: $newProjectDraft) { project in
+                NavigationStack {
+                    ProjectEditSheet(project: project, tint: PerspectiveTint.projects, isNewProject: true)
+                        .navigationTitle("New Project")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button(role: .cancel) {
+                                    modelContext.delete(project)
+                                    newProjectDraft = nil
+                                } label: {
+                                    Image(systemName: "xmark")
+                                }
+                            }
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Add") { newProjectDraft = nil }
+                            }
+                        }
+                }
             }
             .alert("New Folder", isPresented: $isAddingFolder) {
                 TextField("Folder name", text: $newFolderName)
@@ -150,12 +170,6 @@ struct ProjectsScreen: View {
             folder.sortOrder = newSortOrder
             folder.updatedAt = Date()
         }
-    }
-
-    private func commitNewProject() {
-        let trimmed = newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        modelContext.insert(Project(name: trimmed))
     }
 
     private func commitNewFolder() {

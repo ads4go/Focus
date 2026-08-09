@@ -20,7 +20,7 @@ struct ProjectListView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.controlActiveState) private var controlActiveState
-    @Query(filter: #Predicate<Project> { $0.deletedAt == nil }, sort: \Project.sortOrder)
+    @Query(filter: #Predicate<Project> { $0.deletedAt == nil && !$0.isCompleted }, sort: \Project.sortOrder)
     private var projects: [Project]
     @Query(filter: #Predicate<Folder> { $0.deletedAt == nil }, sort: \Folder.sortOrder)
     private var folders: [Folder]
@@ -419,10 +419,6 @@ struct ProjectListView: View {
             // Shifts just the text — the icon's own position is fine.
             .padding(.leading, -2)
             Spacer()
-            if project.isCompleted {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.secondary)
-            }
         }
         // See folderHeader's identical padding for why this is here.
         .padding(.vertical, 3)

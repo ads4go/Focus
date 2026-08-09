@@ -305,4 +305,29 @@ enum Mutations {
             existing.updatedAt = now
         }
     }
+
+    /// Caller is expected to have already resolved `username` to `userID`
+    /// via UserLookup — this mutation itself does no network I/O, matching
+    /// every other mutation in this file.
+    static func shareProject(_ project: Project, withUserID userID: UUID, username: String, in context: ModelContext) {
+        let projectID = project.id
+        let descriptor = FetchDescriptor<ProjectShare>(
+            predicate: #Predicate { $0.projectID == projectID && $0.sharedWithUserID == userID }
+        )
+        if let existing = try? context.fetch(descriptor).first {
+            existing.sharedWithUsername = username
+            if existing.deletedAt != nil {
+                existing.deletedAt = nil
+                existing.updatedAt = Date()
+            }
+            return
+        }
+        context.insert(ProjectShare(projectID: projectID, sharedWithUserID: userID, sharedWithUsername: username))
+    }
+
+    static func unshareProject(_ share: ProjectShare, in context: ModelContext) {
+        let now = Date()
+        share.deletedAt = now
+        share.updatedAt = now
+    }
 }

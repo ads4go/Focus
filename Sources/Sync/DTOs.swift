@@ -35,6 +35,24 @@ struct TagDTO: Codable {
         updatedAt = tag.updatedAt
         deletedAt = tag.deletedAt
     }
+
+    // Synthesized Encodable would use encodeIfPresent for the Optional
+    // fields below, which OMITS the key entirely when nil rather than
+    // sending an explicit null — PostgREST's upsert only touches columns
+    // actually present in the payload, so clearing colorHex/parentTagID
+    // locally would silently never reach the server. Plain encode(_:forKey:)
+    // (Optional's own Encodable conformance) sends null instead of omitting.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(colorHex, forKey: .colorHex)
+        try container.encode(parentTagID, forKey: .parentTagID)
+        try container.encode(sortOrder, forKey: .sortOrder)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(deletedAt, forKey: .deletedAt)
+    }
 }
 
 struct FolderDTO: Codable {
@@ -109,6 +127,29 @@ struct ProjectDTO: Codable {
         updatedAt = project.updatedAt
         deletedAt = project.deletedAt
     }
+
+    // See TagDTO's identical override for why: synthesized Encodable would
+    // omit dueDate/deferDate/folderID/reviewIntervalDays/lastReviewedAt
+    // entirely when nil instead of sending null, so clearing a due date
+    // (or moving a project out of a folder, etc.) would silently never
+    // reach the server.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(notes, forKey: .notes)
+        try container.encode(isCompleted, forKey: .isCompleted)
+        try container.encode(flagged, forKey: .flagged)
+        try container.encode(dueDate, forKey: .dueDate)
+        try container.encode(deferDate, forKey: .deferDate)
+        try container.encode(folderID, forKey: .folderID)
+        try container.encode(sortOrder, forKey: .sortOrder)
+        try container.encode(reviewIntervalDays, forKey: .reviewIntervalDays)
+        try container.encode(lastReviewedAt, forKey: .lastReviewedAt)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(deletedAt, forKey: .deletedAt)
+    }
 }
 
 struct TaskDTO: Codable {
@@ -156,6 +197,29 @@ struct TaskDTO: Codable {
         updatedAt = task.updatedAt
         deletedAt = task.deletedAt
     }
+
+    // See TagDTO's identical override for why: synthesized Encodable would
+    // omit projectID/parentTaskID/dueDate/deferDate/completedAt entirely
+    // when nil instead of sending null, so clearing a due date, moving a
+    // task to the inbox, un-completing it, etc. would silently never reach
+    // the server.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(projectID, forKey: .projectID)
+        try container.encode(parentTaskID, forKey: .parentTaskID)
+        try container.encode(title, forKey: .title)
+        try container.encode(notes, forKey: .notes)
+        try container.encode(dueDate, forKey: .dueDate)
+        try container.encode(deferDate, forKey: .deferDate)
+        try container.encode(flagged, forKey: .flagged)
+        try container.encode(completed, forKey: .completed)
+        try container.encode(completedAt, forKey: .completedAt)
+        try container.encode(sortOrder, forKey: .sortOrder)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(deletedAt, forKey: .deletedAt)
+    }
 }
 
 struct ProjectTagDTO: Codable {
@@ -182,6 +246,36 @@ struct ProjectTagDTO: Codable {
         createdAt = projectTag.createdAt
         updatedAt = projectTag.updatedAt
         deletedAt = projectTag.deletedAt
+    }
+}
+
+struct ProjectShareDTO: Codable {
+    let id: UUID
+    var projectID: UUID
+    var sharedWithUserID: UUID
+    var sharedWithUsername: String
+    var createdAt: Date
+    var updatedAt: Date
+    var deletedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case projectID = "project_id"
+        case sharedWithUserID = "shared_with_user_id"
+        case sharedWithUsername = "shared_with_username"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case deletedAt = "deleted_at"
+    }
+
+    init(_ projectShare: ProjectShare) {
+        id = projectShare.id
+        projectID = projectShare.projectID
+        sharedWithUserID = projectShare.sharedWithUserID
+        sharedWithUsername = projectShare.sharedWithUsername
+        createdAt = projectShare.createdAt
+        updatedAt = projectShare.updatedAt
+        deletedAt = projectShare.deletedAt
     }
 }
 

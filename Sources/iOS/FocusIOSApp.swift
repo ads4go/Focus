@@ -10,6 +10,6 @@ struct FocusIOSApp: App {
             RootView()
                 .environment(authStore)
         }
-        .modelContainer(for: [Tag.self, Folder.self, Project.self, TaskItem.self, TaskTag.self, ProjectTag.self])
+        .modelContainer(for: [Tag.self, Folder.self, Project.self, TaskItem.self, TaskTag.self, ProjectTag.self, ProjectShare.self])
     }
 }

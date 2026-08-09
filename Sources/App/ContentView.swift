@@ -47,6 +47,7 @@ struct ContentView: View {
     /// clip window's left edge rightward (covering it) and revealing
     /// sweeps it back leftward, matching a swipe closed/open to the right.
     @State private var isDetailPaneCollapsed = false
+    @State private var isSigningOut = false
     @State private var detailPaneWidth: CGFloat = 380
     /// The left pane is a filter on the middle pane, not a navigation
     /// picker — matching OmniFocus, where selecting nothing shows every
@@ -238,16 +239,28 @@ struct ContentView: View {
                 }
             }
             ToolbarItem {
-                // Wipes local data + resets sync cursors before signing out
-                // — see SyncEngine.resetLocalData's doc comment for why
-                // signing out alone (previously all this button did) leaves
-                // stale local data and a stale cursor behind, so signing
-                // back in just resumes the old session instead of doing a
-                // fresh pull.
-                Button("Sign Out") {
-                    SyncEngine.resetLocalData(context: modelContext)
-                    Task { await authStore.signOut() }
+                // Pushes pending local edits, THEN wipes local data + resets
+                // sync cursors before signing out. The push has to happen
+                // first: without it, an edit made moments ago — still inside
+                // schedulePush's debounce, or mid-flight on the network —
+                // gets wiped by resetLocalData before it ever reaches
+                // Supabase, silently discarding it for good (this is exactly
+                // how a just-created ProjectShare row went missing in
+                // testing). Resetting local data at all is still necessary
+                // on its own — see SyncEngine.resetLocalData's doc comment
+                // for why signing out alone leaves stale local data and a
+                // stale cursor behind, so signing back in just resumes the
+                // old session instead of doing a fresh pull.
+                Button(isSigningOut ? "Signing Out…" : "Sign Out") {
+                    isSigningOut = true
+                    Task {
+                        await SyncEngine.pushAll(context: modelContext)
+                        SyncEngine.resetLocalData(context: modelContext)
+                        await authStore.signOut()
+                        isSigningOut = false
+                    }
                 }
+                .disabled(isSigningOut)
             }
             ToolbarItem {
                 Button {

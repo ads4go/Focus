@@ -231,5 +231,6 @@ struct QuickEntrySheet: View {
             modelContext.insert(TaskTag(taskID: task.id, tagID: tagID))
         }
         dismiss()
+        Task { await SyncEngine.syncNow(context: modelContext) }
     }
 }
